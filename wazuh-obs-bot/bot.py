@@ -15,17 +15,22 @@ import schedule
 import time
 import threading
 import requests as http_requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from dotenv import load_dotenv
 
 from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-from wazuh_collector    import get_recent_alerts
-from observium_collector import get_device_status, get_alerts, get_port_errors, get_summary as obs_get_summary, get_dashboard_summary
-from graylog_collector import get_summary as gl_get_summary
-from fortinet_collector import get_summary as ft_get_summary
-from llm_analyzer       import analyze_security_data
+from wazuh_collector      import get_recent_alerts
+from observium_collector  import get_device_status, get_alerts, get_port_errors, get_summary as obs_get_summary, get_dashboard_summary
+from graylog_collector    import get_summary as gl_get_summary
+from fortinet_collector   import get_summary as ft_get_summary
+from prometheus_collector import get_summary as prom_get_summary
+from zabbix_collector     import get_summary as zbx_get_summary
+from webhook_receiver     import get_summary as wh_get_summary, start_webhook_server
+from llm_analyzer         import analyze_security_data
+from smtp_notifier        import send_report as smtp_send_report
 
 # ─────────────────────────────────────────────────────────────────────────────
 load_dotenv()
@@ -45,6 +50,7 @@ INTERVAL = int(os.getenv("CHECK_INTERVAL_MINUTES", "30"))
 WEB_UI_API = os.getenv("WEB_UI_API", "http://localhost:5000")
 
 _app: Application | None = None
+_loop: asyncio.AbstractEventLoop | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -101,43 +107,63 @@ def send_heartbeat():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def collect_all() -> dict:
-    obs = obs_get_summary()  # web scraping ile tek seferde giriş yap
-    # Graylog opsiyonel — ayarlarda GRAYLOG_HOST tanımlıysa çek
-    graylog = {}
-    try:
-        gl_host = os.getenv("GRAYLOG_HOST", "")
-        if gl_host:
-            graylog = gl_get_summary()
-    except Exception as e:
-        graylog = {"error": str(e)}
-    # Fortinet opsiyonel
-    fortinet = {}
-    try:
-        ft_host = os.getenv("FORTINET_HOST", "")
-        if ft_host:
-            fortinet = ft_get_summary()
-    except Exception as e:
-        fortinet = {"error": str(e)}
-    return {
-        "wazuh": get_recent_alerts(),
-        "observium": obs,
-        "graylog": graylog,
-        "fortinet": fortinet,
+    tasks: dict[str, callable] = {
+        "wazuh":     get_recent_alerts,
+        "observium": obs_get_summary,
     }
+    if os.getenv("GRAYLOG_HOST", ""):
+        tasks["graylog"] = gl_get_summary
+    if os.getenv("FORTINET_HOST", ""):
+        tasks["fortinet"] = ft_get_summary
+    if os.getenv("PROMETHEUS_HOST", "") or os.getenv("ALERTMANAGER_HOST", ""):
+        tasks["prometheus"] = prom_get_summary
+    if os.getenv("ZABBIX_HOST", ""):
+        tasks["zabbix"] = zbx_get_summary
+    tasks["webhooks"] = wh_get_summary  # her zaman çalışır (yerel deque)
+
+    results: dict = {}
+    with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+        future_to_key = {executor.submit(fn): key for key, fn in tasks.items()}
+        for future in as_completed(future_to_key):
+            key = future_to_key[future]
+            try:
+                results[key] = future.result(timeout=90)
+            except Exception as e:
+                results[key] = {"error": str(e)}
+
+    results.setdefault("graylog", {})
+    results.setdefault("fortinet", {})
+    results.setdefault("prometheus", {})
+    results.setdefault("zabbix", {})
+    results.setdefault("webhooks", {})
+    return results
 
 
 def build_report() -> tuple[str, dict]:
     """Rapor metni + ham veri döner."""
     log.info("Veri toplanıyor...")
     data   = collect_all()
-    log.info("LLM analizi başlatılıyor (model: %s)...", os.getenv("OLLAMA_MODEL"))
-    report = analyze_security_data(data["wazuh"], data["observium"], data.get("graylog", {}), data.get("fortinet", {}))
-    ts     = datetime.now().strftime("%d.%m.%Y %H:%M")
+    log.info("LLM analizi başlatılıyor (provider: %s)...", os.getenv("LLM_PROVIDER", "ollama"))
+    report = analyze_security_data(
+        data["wazuh"],
+        data["observium"],
+        data.get("graylog"),
+        data.get("fortinet"),
+        data.get("prometheus"),
+        data.get("zabbix"),
+        data.get("webhooks"),
+    )
+    ts = datetime.now().strftime("%d.%m.%Y %H:%M")
     return f"{report}\n\n⏱ _{ts} TSİ_", data
 
 
 def split_message(text: str, limit: int = 4000) -> list[str]:
     return [text[i : i + limit] for i in range(0, len(text), limit)]
+
+
+def _is_authorized(update: Update) -> bool:
+    """Yalnızca yapılandırılmış CHAT_ID'ye izin ver."""
+    return update.effective_chat.id == CHAT_ID
 
 
 async def send_chunks(bot, chat_id: int, text: str,
@@ -152,6 +178,16 @@ async def send_chunks(bot, chat_id: int, text: str,
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not _is_authorized(update):
+        return
+    prom_active = bool(os.getenv("PROMETHEUS_HOST") or os.getenv("ALERTMANAGER_HOST"))
+    zbx_active  = bool(os.getenv("ZABBIX_HOST"))
+    extra = ""
+    if prom_active:
+        extra += "• /prometheus\_sondurum \u2014 Prometheus/Alertmanager durumu\n"
+    if zbx_active:
+        extra += "• /zabbix\_sondurum \u2014 Zabbix problem durumu\n"
+    extra += "• /webhook\_sondurum \u2014 Gelen webhook sinyalleri\n"
     msg = (
         "🤖 *EcY_S3CB0T — Güvenlik & Ağ İzleme*\n\n"
         "Kullanılabilir komutlar:\n"
@@ -160,6 +196,7 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         "• /observium\\_sondurum \u2014 Observium ağ durumu\n"
         "• /graylog\\_sondurum \u2014 Graylog log durumu\n"
         "• /forti\\_sondurum \u2014 Fortinet FortiGate durumu\n"
+        + extra +
         "• /yardim \u2014 Bu mesaj\n\n"
         f"⏰ Otomatik rapor her *{INTERVAL} dakika*da bir gönderilir.\n"
         f"🖥 Web UI: {WEB_UI_API}"
@@ -168,22 +205,27 @@ async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_durum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not _is_authorized(update):
+        return
     await update.message.reply_text("🔄 Analiz başlatıldı, lütfen bekleyin...")
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         report_text, data = await loop.run_in_executor(None, build_report)
-        await send_chunks(update.message, update.message.chat_id, report_text,
+        await send_chunks(ctx.bot, update.message.chat_id, report_text,
                           message_type="report", trigger_source="manual")
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "manual")
+        smtp_send_report(report_text)
     except Exception as e:
         log.error("cmd_durum hatası: %s", e)
         await update.message.reply_text(f"❌ Hata oluştu: `{e}`", parse_mode="Markdown")
 
 
 async def cmd_wazuh_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not _is_authorized(update):
+        return
     await update.message.reply_text("🔄 Wazuh verileri çekiliyor...")
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(None, get_recent_alerts)
 
         if "error" in data:
@@ -210,7 +252,7 @@ async def cmd_wazuh_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         ts = datetime.now().strftime("%d.%m.%Y %H:%M")
         lines.append(f"\n⏱ _{ts} TSİ_")
-        await send_chunks(update.message, update.message.chat_id, "\n".join(lines))
+        await send_chunks(ctx.bot, update.message.chat_id, "\n".join(lines))
 
     except Exception as e:
         log.error("cmd_wazuh hatası: %s", e)
@@ -218,9 +260,11 @@ async def cmd_wazuh_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_observium_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not _is_authorized(update):
+        return
     await update.message.reply_text("🔄 Observium ağ verileri çekiliyor...")
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(None, get_dashboard_summary)
 
         if "error" in data:
@@ -276,7 +320,7 @@ async def cmd_observium_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
         ts = datetime.now().strftime("%d.%m.%Y %H:%M")
         lines.append(f"\n⏱ _{ts} TSİ_")
-        await send_chunks(update.message, update.message.chat_id, "\n".join(lines))
+        await send_chunks(ctx.bot, update.message.chat_id, "\n".join(lines))
 
     except Exception as e:
         log.error("cmd_network hatası: %s", e)
@@ -284,9 +328,11 @@ async def cmd_observium_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE)
 
 
 async def cmd_graylog_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not _is_authorized(update):
+        return
     await update.message.reply_text("🔄 Graylog verileri çekiliyor...")
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(None, gl_get_summary)
 
         if "error" in data:
@@ -302,10 +348,11 @@ async def cmd_graylog_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         gl_stats = data.get("log_stats", {})
 
         lines = ["📊 *Graylog Son Durum*\n"]
+        processing_icon = "✅ Evet" if gl_sys.get("is_processing") else "❌ Hayır"
         lines.append(
             f"• Versiyon: *Graylog {gl_sys.get('version', '?')}* ({gl_sys.get('hostname', '?')})\n"
             f"• Throughput: *{gl_sys.get('throughput', 0)}* msg/sn\n"
-            f"• İşleniyor: {'\u2705 Evet' if gl_sys.get('is_processing') else '\u274c Hayır'}"
+            f"• İşleniyor: {processing_icon}"
         )
 
         # Log istatistikleri
@@ -346,7 +393,7 @@ async def cmd_graylog_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         ts = datetime.now().strftime("%d.%m.%Y %H:%M")
         lines.append(f"\n⏱ _{ts} TSİ_")
-        await send_chunks(update.message, update.message.chat_id, "\n".join(lines))
+        await send_chunks(ctx.bot, update.message.chat_id, "\n".join(lines))
 
     except Exception as e:
         log.error("cmd_graylog_sondurum hatası: %s", e)
@@ -354,9 +401,11 @@ async def cmd_graylog_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_forti_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not _is_authorized(update):
+        return
     await update.message.reply_text("🔄 Fortinet FortiGate verileri çekiliyor...")
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(None, ft_get_summary)
 
         if "error" in data:
@@ -438,10 +487,133 @@ async def cmd_forti_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         ts = datetime.now().strftime("%d.%m.%Y %H:%M")
         lines.append(f"\n⏱ _{ts} TSİ_")
-        await send_chunks(update.message, update.message.chat_id, "\n".join(lines))
+        await send_chunks(ctx.bot, update.message.chat_id, "\n".join(lines))
 
     except Exception as e:
         log.error("cmd_forti_sondurum hatası: %s", e)
+        await update.message.reply_text(f"❌ Hata: `{e}`", parse_mode="Markdown")
+
+
+async def cmd_prometheus_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not _is_authorized(update):
+        return
+    await update.message.reply_text("🔄 Prometheus/Alertmanager verileri çekiliyor...")
+    try:
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(None, prom_get_summary)
+
+        if data.get("errors"):
+            await update.message.reply_text(
+                f"🔴 *Prometheus bağlantı hatası:*\n`{data['errors']}`",
+                parse_mode="Markdown"
+            )
+            return
+
+        lines = ["📈 *Prometheus / Alertmanager Durumu*\n"]
+        sources = data.get("sources_active", {})
+        active_src = ", ".join(k for k, v in sources.items() if v) or "Yapılandırılmamış"
+        lines.append(f"🔌 Aktif kaynaklar: *{active_src}*")
+        lines.append(f"🔥 Toplam Firing: *{data.get('total_firing', 0)}* "
+                     f"(🔴 {data.get('critical_count', 0)} kritik | "
+                     f"🟡 {data.get('warning_count', 0)} uyarı | "
+                     f"🔵 {data.get('info_count', 0)} bilgi)")
+
+        for a in data.get("critical_alerts", [])[:8]:
+            lines.append(f"\n  🔴 *{a.get('name','?')}*")
+            if a.get("instance"):
+                lines.append(f"     Instance: `{a['instance']}`")
+            if a.get("summary"):
+                lines.append(f"     {a['summary']}")
+
+        for a in data.get("warning_alerts", [])[:5]:
+            lines.append(f"\n  🟡 *{a.get('name','?')}* — `{a.get('instance','?')}`")
+
+        if not data.get("total_firing"):
+            lines.append("✅ Firing alarm yok")
+
+        ts = datetime.now().strftime("%d.%m.%Y %H:%M")
+        lines.append(f"\n⏱ _{ts} TSİ_")
+        await send_chunks(ctx.bot, update.message.chat_id, "\n".join(lines))
+
+    except Exception as e:
+        log.error("cmd_prometheus_sondurum hatası: %s", e)
+        await update.message.reply_text(f"❌ Hata: `{e}`", parse_mode="Markdown")
+
+
+async def cmd_zabbix_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not _is_authorized(update):
+        return
+    await update.message.reply_text("🔄 Zabbix verileri çekiliyor...")
+    try:
+        loop = asyncio.get_running_loop()
+        data = await loop.run_in_executor(None, zbx_get_summary)
+
+        if "error" in data:
+            await update.message.reply_text(
+                f"🔴 *Zabbix bağlantı hatası:*\n`{data['error']}`",
+                parse_mode="Markdown"
+            )
+            return
+
+        sc = data.get("severity_counts", {})
+        lines = ["🔎 *Zabbix Problem Durumu*\n"]
+        lines.append(f"📊 Toplam Problem: *{data.get('total_problems', 0)}*")
+        lines.append(
+            f"🚨 Felaket: *{sc.get('disaster', 0)}* | "
+            f"🔴 Yüksek: *{sc.get('high', 0)}* | "
+            f"🟠 Orta: *{sc.get('average', 0)}* | "
+            f"🟡 Uyarı: *{sc.get('warning', 0)}*"
+        )
+
+        problems = data.get("problems", [])
+        if problems:
+            lines.append("\n*Aktif Problemler:*")
+            for p in problems[:12]:
+                ack = "✅" if p.get("acknowledged") else "❌"
+                lines.append(
+                    f"  {p.get('severity_icon','❓')} `{p.get('host','?')}` — "
+                    f"{p.get('name','?')} {ack}"
+                )
+        else:
+            lines.append("✅ Aktif problem yok")
+
+        ts = datetime.now().strftime("%d.%m.%Y %H:%M")
+        lines.append(f"\n⏱ _{ts} TSİ_")
+        await send_chunks(ctx.bot, update.message.chat_id, "\n".join(lines))
+
+    except Exception as e:
+        log.error("cmd_zabbix_sondurum hatası: %s", e)
+        await update.message.reply_text(f"❌ Hata: `{e}`", parse_mode="Markdown")
+
+
+async def cmd_webhook_sondurum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not _is_authorized(update):
+        return
+    try:
+        from webhook_receiver import get_pending_webhooks, WEBHOOK_PORT
+        # mark_consumed=False: sadece bak, rapor döngüsüne bırak
+        pending = get_pending_webhooks(mark_consumed=False)
+
+        lines = [f"🔗 *Webhook Sinyalleri* (port: {WEBHOOK_PORT})\n"]
+        if not pending:
+            lines.append("✅ Bekleyen sinyal yok")
+        else:
+            critical = [e for e in pending if e["severity"] == "critical"]
+            warning  = [e for e in pending if e["severity"] == "warning"]
+            info     = [e for e in pending if e["severity"] == "info"]
+            lines.append(f"📥 Toplam: *{len(pending)}* "
+                         f"(🔴 {len(critical)} | 🟡 {len(warning)} | 🔵 {len(info)})\n")
+            for e in (critical + warning + info)[:10]:
+                icon = "🔴" if e["severity"] == "critical" else "🟡" if e["severity"] == "warning" else "🔵"
+                consumed = "✓" if e.get("consumed") else "•"
+                lines.append(f"  {icon} {consumed} `{e['source']}` — {e['title']}")
+
+        ts = datetime.now().strftime("%d.%m.%Y %H:%M")
+        lines.append(f"\n⏱ _{ts} TSİ_")
+        await send_chunks(ctx.bot, update.message.chat_id, "\n".join(lines))
+
+    except Exception as e:
+        log.error("cmd_webhook_sondurum hatası: %s", e)
         await update.message.reply_text(f"❌ Hata: `{e}`", parse_mode="Markdown")
 
 
@@ -454,13 +626,12 @@ async def cmd_yardim(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _scheduled_job():
-    global _app
-    if _app is None:
+    global _app, _loop
+    if _app is None or _loop is None:
         return
     log.info("Zamanlanmış rapor tetiklendi.")
     try:
         report_text, data = build_report()
-        loop = _app.update_queue._loop
         for chunk in split_message(report_text):
             asyncio.run_coroutine_threadsafe(
                 _app.bot.send_message(
@@ -468,10 +639,11 @@ def _scheduled_job():
                     text=chunk,
                     parse_mode="Markdown",
                 ),
-                loop,
+                _loop,
             )
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "auto")
         log_telegram_message(report_text, message_type="report", trigger_source="auto")
+        smtp_send_report(report_text)
         log.info("Zamanlanmış rapor gönderildi.")
     except Exception as e:
         log.error("Zamanlanmış rapor gönderilemedi: %s", e)
@@ -536,30 +708,41 @@ def main():
         raise SystemExit("HATA: .env dosyasında TELEGRAM_CHAT_ID tanımlı değil!")
 
     _app = Application.builder().token(TOKEN).build()
-    _app.add_handler(CommandHandler("start",              cmd_start))
-    _app.add_handler(CommandHandler("durum",              cmd_durum))
-    _app.add_handler(CommandHandler("wazuh_sondurum",     cmd_wazuh_sondurum))
-    _app.add_handler(CommandHandler("observium_sondurum", cmd_observium_sondurum))
-    _app.add_handler(CommandHandler("graylog_sondurum",   cmd_graylog_sondurum))
-    _app.add_handler(CommandHandler("forti_sondurum",     cmd_forti_sondurum))
-    _app.add_handler(CommandHandler("yardim",             cmd_yardim))
+    _app.add_handler(CommandHandler("start",                cmd_start))
+    _app.add_handler(CommandHandler("durum",                cmd_durum))
+    _app.add_handler(CommandHandler("wazuh_sondurum",       cmd_wazuh_sondurum))
+    _app.add_handler(CommandHandler("observium_sondurum",   cmd_observium_sondurum))
+    _app.add_handler(CommandHandler("graylog_sondurum",     cmd_graylog_sondurum))
+    _app.add_handler(CommandHandler("forti_sondurum",       cmd_forti_sondurum))
+    _app.add_handler(CommandHandler("prometheus_sondurum",  cmd_prometheus_sondurum))
+    _app.add_handler(CommandHandler("zabbix_sondurum",      cmd_zabbix_sondurum))
+    _app.add_handler(CommandHandler("webhook_sondurum",     cmd_webhook_sondurum))
+    _app.add_handler(CommandHandler("yardim",               cmd_yardim))
 
-    # BotFather menüsünü otomatik ayarla
-    async def set_bot_commands(_app: Application):
+    # BotFather menüsünü ayarla ve event loop'u yakala
+    async def _post_init(application: Application):
+        global _loop
+        _loop = asyncio.get_running_loop()
         commands = [
-            BotCommand("durum",              "Tam analiz raporu (LLM)"),
-            BotCommand("wazuh_sondurum",     "Wazuh güvenlik durumu"),
-            BotCommand("observium_sondurum", "Observium ağ durumu"),
-            BotCommand("graylog_sondurum",   "Graylog log durumu"),
-            BotCommand("forti_sondurum",     "Fortinet FortiGate durumu"),
-            BotCommand("yardim",             "Yardım ve komut listesi"),
+            BotCommand("durum",               "Tam analiz raporu (LLM)"),
+            BotCommand("wazuh_sondurum",      "Wazuh güvenlik durumu"),
+            BotCommand("observium_sondurum",  "Observium ağ durumu"),
+            BotCommand("graylog_sondurum",    "Graylog log durumu"),
+            BotCommand("forti_sondurum",      "Fortinet FortiGate durumu"),
+            BotCommand("prometheus_sondurum", "Prometheus/Alertmanager durumu"),
+            BotCommand("zabbix_sondurum",     "Zabbix problem durumu"),
+            BotCommand("webhook_sondurum",    "Gelen webhook sinyalleri"),
+            BotCommand("yardim",              "Yardım ve komut listesi"),
         ]
-        await _app.bot.set_my_commands(commands)
+        await application.bot.set_my_commands(commands)
         log.info("Telegram bot menüsü güncellendi (%d komut).", len(commands))
 
-    _app.post_init = set_bot_commands
+    _app.post_init = _post_init
 
     threading.Thread(target=_scheduler_thread, daemon=True).start()
+
+    # Webhook sunucusunu başlat
+    start_webhook_server()
 
     # Başlangıç heartbeat'i
     send_heartbeat()

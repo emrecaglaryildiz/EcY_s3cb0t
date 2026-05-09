@@ -1,6 +1,6 @@
 services:
 
-  # ── Web Arayüzü (Node.js + React) ──────────────────────────────────────────
+  # ── Web Arayüzü (Node.js Express + SQLite) ──────────────────────────────────
   ui:
     build:
       context: ./security-bot-ui
@@ -10,27 +10,24 @@ services:
     ports:
       - "${UI_PORT:-3000}:3000"
     environment:
-      NODE_ENV: production
-      PORT: 3000
-      SESSION_SECRET: "${SESSION_SECRET}"
-      FORCE_SECURE_COOKIES: "${FORCE_SECURE_COOKIES:-false}"
-      # Veritabanı yolu (volume mount ile kalıcı)
-      DATABASE_URL: "/app/data/data.db"
-      # Docker modunda bot ayrı container'da çalışır — yerel spawn devre dışı
-      DOCKER_MODE: "true"
-      BOT_DIR: "/nonexistent"
+      NODE_ENV:              production
+      PORT:                  3000
+      SESSION_SECRET:        "${SESSION_SECRET}"
+      FORCE_SECURE_COOKIES:  "${FORCE_SECURE_COOKIES:-false}"
+      DATABASE_URL:          "/app/data/data.db"
+      WEBHOOK_UI_SECRET:     "${WEBHOOK_SECRET:-}"
     volumes:
       - db_data:/app/data
     networks:
       - internal
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/auth/me"]
-      interval: 30s
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 20s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 15s
 
-  # ── Python Bot (Telegram + Analiz) ─────────────────────────────────────────
+  # ── Python Bot (Telegram + LLM + Analiz) ────────────────────────────────────
   bot:
     build:
       context: ./wazuh-obs-bot
@@ -41,45 +38,78 @@ services:
       ui:
         condition: service_healthy
     environment:
-      # Web UI adresi (internal Docker network üzerinden)
+      # Web UI
       WEB_UI_API: "http://ui:3000"
       # Telegram
-      TELEGRAM_TOKEN: "${TELEGRAM_TOKEN}"
-      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
+      TELEGRAM_TOKEN:    "${TELEGRAM_TOKEN}"
+      TELEGRAM_CHAT_ID:  "${TELEGRAM_CHAT_ID}"
       # Wazuh
-      WAZUH_HOST: "${WAZUH_HOST}"
-      WAZUH_USER: "${WAZUH_USER}"
-      WAZUH_PASS: "${WAZUH_PASS}"
-      WAZUH_ALERT_LEVEL: "${WAZUH_ALERT_LEVEL:-7}"
+      WAZUH_HOST:         "${WAZUH_HOST}"
+      WAZUH_USER:         "${WAZUH_USER}"
+      WAZUH_PASS:         "${WAZUH_PASS}"
+      WAZUH_ALERT_LEVEL:  "${WAZUH_ALERT_LEVEL:-7}"
+      WAZUH_VERIFY_SSL:   "${WAZUH_VERIFY_SSL:-0}"
       # Observium
       OBSERVIUM_HOST: "${OBSERVIUM_HOST}"
       OBSERVIUM_USER: "${OBSERVIUM_USER}"
       OBSERVIUM_PASS: "${OBSERVIUM_PASS}"
       # Graylog (opsiyonel)
-      GRAYLOG_HOST: "${GRAYLOG_HOST:-}"
-      GRAYLOG_USER: "${GRAYLOG_USER:-}"
-      GRAYLOG_PASS: "${GRAYLOG_PASS:-}"
-      GRAYLOG_RANGE_SECONDS: "${GRAYLOG_RANGE_SECONDS:-3600}"
+      GRAYLOG_HOST:           "${GRAYLOG_HOST:-}"
+      GRAYLOG_USER:           "${GRAYLOG_USER:-}"
+      GRAYLOG_PASS:           "${GRAYLOG_PASS:-}"
+      GRAYLOG_RANGE_SECONDS:  "${GRAYLOG_RANGE_SECONDS:-3600}"
+      GRAYLOG_VERIFY_SSL:     "${GRAYLOG_VERIFY_SSL:-0}"
       # Fortinet (opsiyonel)
-      FORTINET_HOST: "${FORTINET_HOST:-}"
-      FORTINET_AUTH: "${FORTINET_AUTH:-token}"
-      FORTINET_API_TOKEN: "${FORTINET_API_TOKEN:-}"
-      FORTINET_USER: "${FORTINET_USER:-admin}"
-      FORTINET_PASS: "${FORTINET_PASS:-}"
-      FORTINET_VDOM: "${FORTINET_VDOM:-root}"
-      # LLM
-      LLM_PROVIDER: "${LLM_PROVIDER:-ollama}"
-      # Ollama host makinede çalışıyorsa host.docker.internal üzerinden erişilir
-      OLLAMA_HOST: "${OLLAMA_HOST:-http://host.docker.internal:11434}"
-      OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen2.5:3b}"
-      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      OPENAI_MODEL: "${OPENAI_MODEL:-}"
+      FORTINET_HOST:       "${FORTINET_HOST:-}"
+      FORTINET_AUTH:       "${FORTINET_AUTH:-token}"
+      FORTINET_API_TOKEN:  "${FORTINET_API_TOKEN:-}"
+      FORTINET_USER:       "${FORTINET_USER:-admin}"
+      FORTINET_PASS:       "${FORTINET_PASS:-}"
+      FORTINET_VDOM:       "${FORTINET_VDOM:-root}"
+      FORTINET_VERIFY_SSL: "${FORTINET_VERIFY_SSL:-0}"
+      FORTINET_TIMEOUT:    "${FORTINET_TIMEOUT:-15}"
+      # Prometheus / Alertmanager (opsiyonel)
+      PROMETHEUS_HOST:        "${PROMETHEUS_HOST:-}"
+      ALERTMANAGER_HOST:      "${ALERTMANAGER_HOST:-}"
+      PROMETHEUS_USER:        "${PROMETHEUS_USER:-}"
+      PROMETHEUS_PASS:        "${PROMETHEUS_PASS:-}"
+      PROMETHEUS_VERIFY_SSL:  "${PROMETHEUS_VERIFY_SSL:-0}"
+      PROMETHEUS_TIMEOUT:     "${PROMETHEUS_TIMEOUT:-15}"
+      # Zabbix (opsiyonel)
+      ZABBIX_HOST:        "${ZABBIX_HOST:-}"
+      ZABBIX_USER:        "${ZABBIX_USER:-Admin}"
+      ZABBIX_PASS:        "${ZABBIX_PASS:-}"
+      ZABBIX_API_TOKEN:   "${ZABBIX_API_TOKEN:-}"
+      ZABBIX_VERIFY_SSL:  "${ZABBIX_VERIFY_SSL:-0}"
+      ZABBIX_TIMEOUT:     "${ZABBIX_TIMEOUT:-15}"
+      # Generic Webhook alıcısı
+      WEBHOOK_PORT:      "${WEBHOOK_PORT:-8080}"
+      WEBHOOK_SECRET:    "${WEBHOOK_SECRET:-}"
+      WEBHOOK_MAX_STORE: "${WEBHOOK_MAX_STORE:-200}"
+      # LLM (ollama | claude | openai)
+      LLM_PROVIDER:    "${LLM_PROVIDER:-ollama}"
+      OLLAMA_HOST:     "${OLLAMA_HOST:-http://host.docker.internal:11434}"
+      OLLAMA_MODEL:    "${OLLAMA_MODEL:-qwen2.5:3b}"
+      CLAUDE_API_KEY:  "${CLAUDE_API_KEY:-}"
+      CLAUDE_MODEL:    "${CLAUDE_MODEL:-claude-haiku-4-5-20251001}"
+      OPENAI_API_KEY:  "${OPENAI_API_KEY:-}"
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
+      OPENAI_MODEL:    "${OPENAI_MODEL:-gpt-4o-mini}"
+      # SMTP (opsiyonel)
+      SMTP_HOST:      "${SMTP_HOST:-}"
+      SMTP_PORT:      "${SMTP_PORT:-587}"
+      SMTP_USER:      "${SMTP_USER:-}"
+      SMTP_PASS:      "${SMTP_PASS:-}"
+      SMTP_FROM:      "${SMTP_FROM:-}"
+      SMTP_TO:        "${SMTP_TO:-}"
+      SMTP_TLS:       "${SMTP_TLS:-1}"
+      SMTP_ON_CRITICAL_ONLY: "${SMTP_ON_CRITICAL_ONLY:-1}"
       # Rapor aralığı
       CHECK_INTERVAL_MINUTES: "${CHECK_INTERVAL_MINUTES:-30}"
+    ports:
+      - "${WEBHOOK_PORT:-8080}:8080"
     networks:
       - internal
-    # Ollama host makinede çalışıyorsa erişim için
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

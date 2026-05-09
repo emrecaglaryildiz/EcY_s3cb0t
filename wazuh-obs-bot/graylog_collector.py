@@ -17,10 +17,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-GL_HOST = os.getenv("GRAYLOG_HOST", "http://localhost:9000").rstrip("/")
-GL_USER = os.getenv("GRAYLOG_USER", "admin")
-GL_PASS = os.getenv("GRAYLOG_PASS", "admin")
-GL_RANGE = int(os.getenv("GRAYLOG_RANGE_SECONDS", "3600"))  # varsayılan: son 1 saat
+GL_HOST      = os.getenv("GRAYLOG_HOST", "http://localhost:9000").rstrip("/")
+GL_USER      = os.getenv("GRAYLOG_USER", "admin")
+GL_PASS      = os.getenv("GRAYLOG_PASS", "admin")
+GL_RANGE     = int(os.getenv("GRAYLOG_RANGE_SECONDS", "3600"))
+GL_VERIFY_SSL = os.getenv("GRAYLOG_VERIFY_SSL", "0") == "1"
 
 
 def _auth():
@@ -38,7 +39,7 @@ def _get(path: str, params: dict | None = None, timeout: int = 15) -> dict:
     """Graylog API GET isteği, JSON döner."""
     url = f"{GL_HOST}/api{path}"
     r = requests.get(url, auth=_auth(), headers=_headers(),
-                     params=params, timeout=timeout, verify=False)
+                     params=params, timeout=timeout, verify=GL_VERIFY_SSL)
     r.raise_for_status()
     return r.json()
 
@@ -47,7 +48,7 @@ def _post(path: str, body: dict | None = None, timeout: int = 15) -> dict:
     """Graylog API POST isteği."""
     url = f"{GL_HOST}/api{path}"
     r = requests.post(url, auth=_auth(), headers={**_headers(), "Content-Type": "application/json"},
-                      json=body, timeout=timeout, verify=False)
+                      json=body, timeout=timeout, verify=GL_VERIFY_SSL)
     r.raise_for_status()
     return r.json()
 
@@ -295,7 +296,7 @@ def test_connection(host: str | None = None, user: str | None = None,
             auth=(u, p),
             headers={"Accept": "application/json", "X-Requested-By": "secbot"},
             timeout=10,
-            verify=False,
+            verify=GL_VERIFY_SSL,
         )
         if r.status_code == 401:
             return {"ok": False, "message": "Kimlik doğrulama başarısız — kullanıcı adı/şifre hatalı"}
