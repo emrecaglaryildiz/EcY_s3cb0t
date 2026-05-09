@@ -67,19 +67,37 @@ services:
       FORTINET_USER: "${FORTINET_USER:-admin}"
       FORTINET_PASS: "${FORTINET_PASS:-}"
       FORTINET_VDOM: "${FORTINET_VDOM:-root}"
-      # LLM
+      # LLM (ollama | claude | openai)
       LLM_PROVIDER: "${LLM_PROVIDER:-ollama}"
-      # Ollama host makinede çalışıyorsa host.docker.internal üzerinden erişilir
       OLLAMA_HOST: "${OLLAMA_HOST:-http://host.docker.internal:11434}"
       OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen2.5:3b}"
-      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-}"
+      CLAUDE_API_KEY: "${CLAUDE_API_KEY:-}"
+      CLAUDE_MODEL: "${CLAUDE_MODEL:-claude-haiku-4-5-20251001}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      OPENAI_MODEL: "${OPENAI_MODEL:-}"
+      OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4o-mini}"
+      # Prometheus / Alertmanager (opsiyonel)
+      PROMETHEUS_HOST: "${PROMETHEUS_HOST:-}"
+      ALERTMANAGER_HOST: "${ALERTMANAGER_HOST:-}"
+      PROMETHEUS_USER: "${PROMETHEUS_USER:-}"
+      PROMETHEUS_PASS: "${PROMETHEUS_PASS:-}"
+      PROMETHEUS_VERIFY_SSL: "${PROMETHEUS_VERIFY_SSL:-0}"
+      # Zabbix (opsiyonel)
+      ZABBIX_HOST: "${ZABBIX_HOST:-}"
+      ZABBIX_USER: "${ZABBIX_USER:-Admin}"
+      ZABBIX_PASS: "${ZABBIX_PASS:-}"
+      ZABBIX_API_TOKEN: "${ZABBIX_API_TOKEN:-}"
+      ZABBIX_VERIFY_SSL: "${ZABBIX_VERIFY_SSL:-0}"
+      # Generic Webhook alıcısı
+      WEBHOOK_PORT: "${WEBHOOK_PORT:-8080}"
+      WEBHOOK_SECRET: "${WEBHOOK_SECRET:-}"
+      WEBHOOK_MAX_STORE: "${WEBHOOK_MAX_STORE:-200}"
       # Rapor aralığı
       CHECK_INTERVAL_MINUTES: "${CHECK_INTERVAL_MINUTES:-30}"
+    ports:
+      - "${WEBHOOK_PORT:-8080}:8080"
     networks:
       - internal
-    # Ollama host makinede çalışıyorsa erişim için
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
