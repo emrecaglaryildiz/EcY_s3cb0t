@@ -19,6 +19,6 @@ ENV NODE_ENV=production \
 EXPOSE 3000
 
 HEALTHCHECK --interval=20s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget -qO- http://localhost:3000/api/auth/me || exit 0
+  CMD wget -qO- http://localhost:3000/health
 
 CMD ["node", "server/index.js"]

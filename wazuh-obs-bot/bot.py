@@ -673,6 +673,7 @@ def run_once():
         report_text, data = build_report()
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "manual")
         log_telegram_message(report_text, message_type="report", trigger_source="manual")
+        smtp_send_report(report_text)
 
         async def _send():
             bot = Application.builder().token(TOKEN).build()
