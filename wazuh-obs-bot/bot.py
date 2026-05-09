@@ -30,6 +30,7 @@ from prometheus_collector import get_summary as prom_get_summary
 from zabbix_collector     import get_summary as zbx_get_summary
 from webhook_receiver     import get_summary as wh_get_summary, start_webhook_server
 from llm_analyzer         import analyze_security_data
+from smtp_notifier        import send_report as smtp_send_report
 
 # ─────────────────────────────────────────────────────────────────────────────
 load_dotenv()
@@ -213,6 +214,7 @@ async def cmd_durum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await send_chunks(ctx.bot, update.message.chat_id, report_text,
                           message_type="report", trigger_source="manual")
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "manual")
+        smtp_send_report(report_text)
     except Exception as e:
         log.error("cmd_durum hatası: %s", e)
         await update.message.reply_text(f"❌ Hata oluştu: `{e}`", parse_mode="Markdown")
@@ -641,6 +643,7 @@ def _scheduled_job():
             )
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "auto")
         log_telegram_message(report_text, message_type="report", trigger_source="auto")
+        smtp_send_report(report_text)
         log.info("Zamanlanmış rapor gönderildi.")
     except Exception as e:
         log.error("Zamanlanmış rapor gönderilemedi: %s", e)

@@ -1,0 +1,21 @@
+{
+  "name": "ecy-s3cb0t-ui",
+  "version": "1.0.0",
+  "description": "EcY_S3CB0T Web Arayüzü — Express API + SQLite",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "bcryptjs": "^2.4.3",
+    "express": "^4.18.3",
+    "express-session": "^1.18.0",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
