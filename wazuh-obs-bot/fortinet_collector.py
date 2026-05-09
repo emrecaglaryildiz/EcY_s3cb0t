@@ -7,6 +7,7 @@ Desteklenen auth yöntemleri:
 
 import os
 import logging
+import threading
 import requests
 import urllib3
 
@@ -26,33 +27,33 @@ TIMEOUT = int(os.getenv("FORTINET_TIMEOUT", "15"))
 # ── Session cache ─────────────────────────────────────────────────────────────
 _session: requests.Session | None = None
 _csrf_token: str = ""
+_session_lock = threading.Lock()
 
 
 def _get_session() -> requests.Session:
     """Session auth: login ve CSRF token al."""
     global _session, _csrf_token
-    if _session:
-        return _session
+    with _session_lock:
+        if _session:
+            return _session
 
-    s = requests.Session()
-    s.verify = VERIFY_SSL
-    resp = s.post(
-        f"{HOST}/logincheck",
-        data={"ajax": "1", "username": USER, "secretkey": PASS},
-        timeout=TIMEOUT,
-    )
-    # Başarılı login → status 200, body "1"
-    if resp.text.strip() not in ("1", ""):
-        raise ConnectionError(f"FortiGate login başarısız: HTTP {resp.status_code}")
+        s = requests.Session()
+        s.verify = VERIFY_SSL
+        resp = s.post(
+            f"{HOST}/logincheck",
+            data={"ajax": "1", "username": USER, "secretkey": PASS},
+            timeout=TIMEOUT,
+        )
+        if resp.text.strip() not in ("1", ""):
+            raise ConnectionError(f"FortiGate login başarısız: HTTP {resp.status_code}")
 
-    # CSRF token çerezlerden
-    for cookie in s.cookies:
-        if cookie.name.upper() == "CCSRFTOKEN":
-            _csrf_token = cookie.value.strip('"')
-            break
+        for cookie in s.cookies:
+            if cookie.name.upper() == "CCSRFTOKEN":
+                _csrf_token = cookie.value.strip('"')
+                break
 
-    _session = s
-    return s
+        _session = s
+        return s
 
 
 def _api_get(path: str, params: dict | None = None) -> dict:
@@ -110,9 +111,10 @@ def get_system_resources() -> dict | None:
         return None
     r = data.get("results", {})
     return {
-        "cpu": r.get("cpu", [{}])[-1].get("current", 0) if isinstance(r.get("cpu"), list) else r.get("cpu", 0),
-        "mem": r.get("mem", [{}])[-1].get("current", 0) if isinstance(r.get("mem"), list) else r.get("mem", 0),
-        "session": r.get("session", [{}])[-1].get("current", 0) if isinstance(r.get("session"), list) else r.get("session", 0),
+        "cpu":       r.get("cpu", [{}])[-1].get("current", 0) if isinstance(r.get("cpu"), list) else r.get("cpu", 0),
+        "memory":    r.get("mem", [{}])[-1].get("current", 0) if isinstance(r.get("mem"), list) else r.get("mem", 0),
+        "disk":      0,
+        "session":   r.get("session", [{}])[-1].get("current", 0) if isinstance(r.get("session"), list) else r.get("session", 0),
         "setuprate": r.get("setuprate", [{}])[-1].get("current", 0) if isinstance(r.get("setuprate"), list) else r.get("setuprate", 0),
     }
 
@@ -209,8 +211,8 @@ def get_session_info() -> dict | None:
         return None
     r = data.get("results", {})
     return {
-        "total_sessions": r.get("total", 0),
-        "top_sessions": r.get("details", [])[:10],
+        "active_sessions": r.get("total", 0),
+        "top_sessions":    r.get("details", [])[:10],
     }
 
 
@@ -239,17 +241,14 @@ def get_routing_table() -> list[dict] | None:
 
 def get_summary() -> dict:
     """Tüm FortiGate verisini topla ve tek dict olarak döndür."""
-    global _session
-    _session = None  # her sorguda taze session
-
     return {
-        "system_status": get_system_status(),
-        "resources": get_system_resources(),
+        "system":     get_system_status(),
+        "resources":  get_system_resources(),
         "interfaces": get_interfaces(),
-        "ipsec_tunnels": get_ipsec_tunnels(),
-        "firewall_policies": get_firewall_policy_stats(),
-        "session_info": get_session_info(),
-        "routing_table": get_routing_table(),
+        "ipsec":      get_ipsec_tunnels(),
+        "policies":   get_firewall_policy_stats(),
+        "sessions":   get_session_info(),
+        "routes":     get_routing_table(),
     }
 
 

@@ -10,6 +10,7 @@ Ana dashboard sayfasına (/) giriş yaparak HTML parse eder:
 
 import os
 import re
+import threading
 import requests
 from bs4 import BeautifulSoup, Tag
 from dotenv import load_dotenv
@@ -23,63 +24,66 @@ OBS_PASS = os.getenv("OBSERVIUM_PASS", "admin")
 # ── Session yönetimi ──────────────────────────────────────────────────────────
 
 _session: requests.Session | None = None
+_session_lock = threading.Lock()
 
 
 def _get_session() -> requests.Session:
     """Giriş yapılmış bir requests.Session döner. Zaten açıksa yeniden giriş yapmaz."""
     global _session
-    if _session is not None:
-        return _session
+    with _session_lock:
+        if _session is not None:
+            return _session
 
-    s = requests.Session()
-    s.headers.update({
-        "User-Agent": (
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
-    })
+        s = requests.Session()
+        s.headers.update({
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "tr-TR,tr;q=0.9,en;q=0.8",
+        })
 
-    # 1. Login sayfasını aç — hidden input / CSRF varsa al
-    try:
-        home = s.get(f"{OBS_HOST}/", allow_redirects=True, timeout=15)
-        soup = BeautifulSoup(home.text, "html.parser")
-        hidden = {}
-        for inp in soup.find_all("input", {"type": "hidden"}):
-            if inp.get("name"):
-                hidden[inp["name"]] = inp.get("value", "")
-    except Exception:
-        hidden = {}
+        # 1. Login sayfasını aç — hidden input / CSRF varsa al
+        try:
+            home = s.get(f"{OBS_HOST}/", allow_redirects=True, timeout=15)
+            soup = BeautifulSoup(home.text, "html.parser")
+            hidden = {}
+            for inp in soup.find_all("input", {"type": "hidden"}):
+                if inp.get("name"):
+                    hidden[inp["name"]] = inp.get("value", "")
+        except Exception:
+            hidden = {}
 
-    # 2. Login POST
-    login_data = {
-        "username": OBS_USER,
-        "password": OBS_PASS,
-        **hidden,
-    }
-    login_resp = s.post(
-        f"{OBS_HOST}/login/",
-        data=login_data,
-        allow_redirects=True,
-        timeout=15,
-    )
-
-    if login_resp.status_code >= 400:
-        raise ConnectionError(
-            f"Observium girişi başarısız: HTTP {login_resp.status_code}"
+        # 2. Login POST
+        login_data = {
+            "username": OBS_USER,
+            "password": OBS_PASS,
+            **hidden,
+        }
+        login_resp = s.post(
+            f"{OBS_HOST}/login/",
+            data=login_data,
+            allow_redirects=True,
+            timeout=15,
         )
 
-    if "login" in login_resp.url.lower() and "incorrect" in login_resp.text.lower():
-        raise PermissionError("Observium kullanıcı adı veya şifre yanlış")
+        if login_resp.status_code >= 400:
+            raise ConnectionError(
+                f"Observium girişi başarısız: HTTP {login_resp.status_code}"
+            )
 
-    _session = s
-    return s
+        if "login" in login_resp.url.lower() and "incorrect" in login_resp.text.lower():
+            raise PermissionError("Observium kullanıcı adı veya şifre yanlış")
+
+        _session = s
+        return s
 
 
 def _reset_session():
     global _session
-    _session = None
+    with _session_lock:
+        _session = None
 
 
 def _get_page(path: str) -> BeautifulSoup:

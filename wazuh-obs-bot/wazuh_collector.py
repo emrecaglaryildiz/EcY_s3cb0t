@@ -6,16 +6,17 @@ Wazuh REST API'den alert ve agent verilerini toplar.
 import requests
 import os
 import urllib3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-WAZUH_HOST  = os.getenv("WAZUH_HOST", "https://localhost:55000")
-WAZUH_USER  = os.getenv("WAZUH_USER", "wazuh")
-WAZUH_PASS  = os.getenv("WAZUH_PASS", "wazuh")
-ALERT_LEVEL = int(os.getenv("WAZUH_ALERT_LEVEL", 7))
+WAZUH_HOST   = os.getenv("WAZUH_HOST", "https://localhost:55000")
+WAZUH_USER   = os.getenv("WAZUH_USER", "wazuh")
+WAZUH_PASS   = os.getenv("WAZUH_PASS", "wazuh")
+ALERT_LEVEL  = int(os.getenv("WAZUH_ALERT_LEVEL", 7))
+VERIFY_SSL   = os.getenv("WAZUH_VERIFY_SSL", "0") == "1"
 
 
 def get_wazuh_token() -> str | None:
@@ -24,7 +25,7 @@ def get_wazuh_token() -> str | None:
         r = requests.get(
             f"{WAZUH_HOST}/security/user/authenticate",
             auth=(WAZUH_USER, WAZUH_PASS),
-            verify=False,
+            verify=VERIFY_SSL,
             timeout=10,
         )
         r.raise_for_status()
@@ -47,15 +48,18 @@ def get_recent_alerts() -> dict:
 
     try:
         # ── Alertler ──────────────────────────────────────────────────────
+        since = (
+            datetime.now(timezone.utc) - timedelta(minutes=interval)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
         r_alerts = requests.get(
             f"{WAZUH_HOST}/alerts",
             headers=headers,
             params={
-                "limit": 100,
+                "limit": 500,
                 "sort": "-timestamp",
-                "q": f"rule.level>={ALERT_LEVEL}",
+                "q": f"rule.level>={ALERT_LEVEL};timestamp>={since}",
             },
-            verify=False,
+            verify=VERIFY_SSL,
             timeout=20,
         )
         r_alerts.raise_for_status()
@@ -66,7 +70,7 @@ def get_recent_alerts() -> dict:
             f"{WAZUH_HOST}/agents",
             headers=headers,
             params={"limit": 500},
-            verify=False,
+            verify=VERIFY_SSL,
             timeout=20,
         )
         r_agents.raise_for_status()
