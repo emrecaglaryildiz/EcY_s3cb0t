@@ -95,6 +95,13 @@ services:
       OPENAI_API_KEY:  "${OPENAI_API_KEY:-}"
       OPENAI_BASE_URL: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
       OPENAI_MODEL:    "${OPENAI_MODEL:-gpt-4o-mini}"
+      # ElasticSearch / OpenSearch (opsiyonel)
+      ELASTIC_HOST:       "${ELASTIC_HOST:-}"
+      ELASTIC_USER:       "${ELASTIC_USER:-elastic}"
+      ELASTIC_PASS:       "${ELASTIC_PASS:-}"
+      ELASTIC_INDEX:      "${ELASTIC_INDEX:-*}"
+      ELASTIC_VERIFY_SSL: "${ELASTIC_VERIFY_SSL:-0}"
+      ELASTIC_TIMEOUT:    "${ELASTIC_TIMEOUT:-15}"
       # SMTP (opsiyonel)
       SMTP_HOST:      "${SMTP_HOST:-}"
       SMTP_PORT:      "${SMTP_PORT:-587}"
@@ -104,6 +111,13 @@ services:
       SMTP_TO:        "${SMTP_TO:-}"
       SMTP_TLS:       "${SMTP_TLS:-1}"
       SMTP_ON_CRITICAL_ONLY: "${SMTP_ON_CRITICAL_ONLY:-1}"
+      # Slack (opsiyonel)
+      SLACK_WEBHOOK_URL:      "${SLACK_WEBHOOK_URL:-}"
+      SLACK_CHANNEL:          "${SLACK_CHANNEL:-}"
+      SLACK_ON_CRITICAL_ONLY: "${SLACK_ON_CRITICAL_ONLY:-1}"
+      # Microsoft Teams (opsiyonel)
+      TEAMS_WEBHOOK_URL:      "${TEAMS_WEBHOOK_URL:-}"
+      TEAMS_ON_CRITICAL_ONLY: "${TEAMS_ON_CRITICAL_ONLY:-1}"
       # Rapor aralığı
       CHECK_INTERVAL_MINUTES: "${CHECK_INTERVAL_MINUTES:-30}"
     ports:
