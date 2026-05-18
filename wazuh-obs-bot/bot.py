@@ -31,6 +31,9 @@ from zabbix_collector     import get_summary as zbx_get_summary
 from webhook_receiver     import get_summary as wh_get_summary, start_webhook_server
 from llm_analyzer         import analyze_security_data
 from smtp_notifier        import send_report as smtp_send_report
+from slack_notifier       import send_report as slack_send_report
+from teams_notifier       import send_report as teams_send_report
+from elastic_collector    import get_summary as el_get_summary
 
 # ─────────────────────────────────────────────────────────────────────────────
 load_dotenv()
@@ -95,11 +98,33 @@ def log_telegram_message(content: str, message_type: str = "report",
 
 
 def send_heartbeat():
-    """Web UI'ye periyodik heartbeat gönder."""
+    """Web UI'ye kaynak durumu ile birlikte heartbeat gönder; tetik varsa rapor üret."""
     try:
-        http_requests.post(f"{WEB_UI_API}/api/bot/heartbeat", timeout=3)
+        source_status = {
+            "wazuh":        bool(os.getenv("WAZUH_HOST")),
+            "observium":    bool(os.getenv("OBSERVIUM_HOST")),
+            "graylog":      bool(os.getenv("GRAYLOG_HOST")),
+            "fortinet":     bool(os.getenv("FORTINET_HOST")),
+            "prometheus":   bool(os.getenv("PROMETHEUS_HOST") or os.getenv("ALERTMANAGER_HOST")),
+            "zabbix":       bool(os.getenv("ZABBIX_HOST")),
+            "elastic":      bool(os.getenv("ELASTIC_HOST")),
+            "webhook":      True,
+            "telegram":     bool(os.getenv("TELEGRAM_TOKEN")),
+            "smtp":         bool(os.getenv("SMTP_HOST")),
+            "slack":        bool(os.getenv("SLACK_WEBHOOK_URL")),
+            "teams":        bool(os.getenv("TEAMS_WEBHOOK_URL")),
+        }
+        resp = http_requests.post(
+            f"{WEB_UI_API}/api/bot/heartbeat",
+            json={"source_status": source_status},
+            timeout=3,
+        )
+        data = resp.json()
+        if data.get("trigger"):
+            log.info("UI tetiklemesi alındı — arka planda rapor üretiliyor…")
+            threading.Thread(target=_scheduled_job, daemon=True).start()
     except Exception:
-        pass  # Web UI yoksa sessizce geç
+        pass
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -119,6 +144,8 @@ def collect_all() -> dict:
         tasks["prometheus"] = prom_get_summary
     if os.getenv("ZABBIX_HOST", ""):
         tasks["zabbix"] = zbx_get_summary
+    if os.getenv("ELASTIC_HOST", ""):
+        tasks["elastic"] = el_get_summary
     tasks["webhooks"] = wh_get_summary  # her zaman çalışır (yerel deque)
 
     results: dict = {}
@@ -131,11 +158,12 @@ def collect_all() -> dict:
             except Exception as e:
                 results[key] = {"error": str(e)}
 
-    results.setdefault("graylog", {})
-    results.setdefault("fortinet", {})
+    results.setdefault("graylog",    {})
+    results.setdefault("fortinet",   {})
     results.setdefault("prometheus", {})
-    results.setdefault("zabbix", {})
-    results.setdefault("webhooks", {})
+    results.setdefault("zabbix",     {})
+    results.setdefault("elastic",    {})
+    results.setdefault("webhooks",   {})
     return results
 
 
@@ -644,6 +672,8 @@ def _scheduled_job():
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "auto")
         log_telegram_message(report_text, message_type="report", trigger_source="auto")
         smtp_send_report(report_text)
+        slack_send_report(report_text)
+        teams_send_report(report_text)
         log.info("Zamanlanmış rapor gönderildi.")
     except Exception as e:
         log.error("Zamanlanmış rapor gönderilemedi: %s", e)

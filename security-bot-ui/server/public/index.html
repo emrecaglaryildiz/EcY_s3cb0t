@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EcY_S3CB0T · Security Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+</head>
+<body>
+
+<!-- ── Login ──────────────────────────────────────────────────────────── -->
+<div id="login-overlay" class="login-overlay">
+  <div class="login-card">
+    <div class="login-logo">
+      <span class="logo-symbol">⬡</span>
+      <h1>EcY_S3CB0T</h1>
+      <p>Security Console</p>
+    </div>
+    <form id="login-form">
+      <div class="form-group">
+        <label>Kullanıcı Adı</label>
+        <input type="text" id="inp-username" autocomplete="username" required autofocus>
+      </div>
+      <div class="form-group">
+        <label>Şifre</label>
+        <input type="password" id="inp-password" autocomplete="current-password" required>
+      </div>
+      <div id="login-error" class="alert alert-error hidden"></div>
+      <button type="submit" class="btn btn-primary btn-block">Giriş Yap</button>
+    </form>
+  </div>
+</div>
+
+<!-- ── App ────────────────────────────────────────────────────────────── -->
+<div id="app" class="app hidden">
+
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo-symbol">⬡</span>
+      <span class="logo-text">EcY_S3CB0T</span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="#dashboard" class="nav-item" data-page="dashboard">
+        <span class="nav-icon">◈</span>
+        <span class="nav-label">Dashboard</span>
+      </a>
+      <a href="#signals" class="nav-item" data-page="signals">
+        <span class="nav-icon">◉</span>
+        <span class="nav-label">Sinyaller</span>
+        <span id="nav-badge-signals" class="badge badge-critical hidden"></span>
+      </a>
+      <a href="#reports" class="nav-item" data-page="reports">
+        <span class="nav-icon">▣</span>
+        <span class="nav-label">Raporlar</span>
+      </a>
+      <a href="#sources" class="nav-item" data-page="sources">
+        <span class="nav-icon">◌</span>
+        <span class="nav-label">Kaynaklar</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="bot-status" id="bot-status-wrap">
+        <span class="status-dot unknown" id="bot-dot"></span>
+        <span id="bot-label">Bot</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="btn-logout">Çıkış</button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <div id="page-dashboard" class="page"></div>
+    <div id="page-signals"   class="page"></div>
+    <div id="page-reports"   class="page"></div>
+    <div id="page-sources"   class="page"></div>
+  </main>
+</div>
+
+<!-- ── Toast container ───────────────────────────────────────────────── -->
+<div id="toast-container" class="toast-container"></div>
+
+<!-- ── Global Modal ──────────────────────────────────────────────────── -->
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title"></span>
+      <button class="modal-close" id="modal-close" aria-label="Kapat">×</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

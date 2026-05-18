@@ -1,32 +1,57 @@
 "use strict";
 const express = require("express");
 const db      = require("../db");
+const bus     = require("../emitter");
 const router  = express.Router();
 
-// Bot heartbeat
+// Bot heartbeat — kaynak durumu ile birlikte
 router.post("/heartbeat", (req, res) => {
-  db.prepare(
-    "UPDATE bot_status SET last_seen = datetime('now'), status = 'online' WHERE id = 1"
-  ).run();
-  res.json({ ok: true });
+  const { source_status } = req.body || {};
+
+  db.prepare(`
+    UPDATE bot_status
+    SET last_seen = datetime('now'), status = 'online', source_status = ?
+    WHERE id = 1
+  `).run(source_status ? JSON.stringify(source_status) : null);
+
+  // pending_trigger'ı atomik olarak oku ve sıfırla
+  const row     = db.prepare("SELECT pending_trigger FROM bot_status WHERE id = 1").get();
+  const trigger = row?.pending_trigger === 1;
+  if (trigger) {
+    db.prepare("UPDATE bot_status SET pending_trigger = 0 WHERE id = 1").run();
+  }
+
+  bus.emit("heartbeat", { status: "online" });
+  res.json({ ok: true, trigger });
 });
 
-// Bot durumunu sorgula
+// Bot durumu
 router.get("/status", (req, res) => {
   const row = db.prepare("SELECT * FROM bot_status WHERE id = 1").get();
   if (!row) return res.json({ status: "unknown" });
-
-  // Son 90 saniyede heartbeat gelmediyse offline say
   const lastSeen = row.last_seen ? new Date(row.last_seen + "Z") : null;
   const online   = lastSeen && (Date.now() - lastSeen.getTime()) < 90_000;
   res.json({ status: online ? "online" : "offline", last_seen: row.last_seen });
 });
 
-// Telegram mesajlarını kaydet
+// UI'dan rapor tetikle
+router.post("/trigger", (req, res) => {
+  db.prepare("UPDATE bot_status SET pending_trigger = 1 WHERE id = 1").run();
+  res.json({ ok: true, message: "Trigger ayarlandı — bot bir sonraki heartbeat'te çalıştıracak" });
+});
+
+// Kaynak durumları (son heartbeat'ten)
+router.get("/sources", (req, res) => {
+  const row = db.prepare("SELECT source_status FROM bot_status WHERE id = 1").get();
+  let sources = {};
+  try { sources = JSON.parse(row?.source_status || "{}"); } catch {}
+  res.json({ sources });
+});
+
+// Telegram mesaj kaydet
 router.post("/telegram/messages", (req, res) => {
   const { direction, chatId, messageType, content, status, triggerSource } = req.body || {};
   if (!content) return res.status(400).json({ error: "content gerekli" });
-
   db.prepare(`
     INSERT INTO telegram_messages (direction, chat_id, message_type, content, status, trigger_source)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -41,9 +66,7 @@ router.post("/telegram/messages", (req, res) => {
 // Telegram mesaj geçmişi
 router.get("/telegram/messages", (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || "50"), 200);
-  const rows  = db.prepare(
-    "SELECT * FROM telegram_messages ORDER BY created_at DESC LIMIT ?"
-  ).all(limit);
+  const rows  = db.prepare("SELECT * FROM telegram_messages ORDER BY created_at DESC LIMIT ?").all(limit);
   res.json({ rows });
 });
 
