@@ -70,6 +70,22 @@ db.exec(`
 try { db.exec("ALTER TABLE bot_status ADD COLUMN pending_trigger INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE bot_status ADD COLUMN source_status TEXT");                } catch {}
 
+// ── LLM ayarları tablosu ──────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+  );
+`);
+const _ins = db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
+for (const [k, v] of [
+  ["llm_provider", "ollama"],
+  ["llm_base_url", "http://localhost:11434"],
+  ["llm_api_key",  ""],
+  ["llm_model",    "qwen2.5:3b"],
+  ["llm_timeout",  "60"],
+]) _ins.run(k, v);
+
 // İlk admin kullanıcı
 const existing = db.prepare("SELECT id FROM users WHERE username = 'admin'").get();
 if (!existing) {

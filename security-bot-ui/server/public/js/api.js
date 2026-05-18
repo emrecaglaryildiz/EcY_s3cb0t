@@ -37,6 +37,10 @@ export const api = {
   botStatus:     ()  => req("GET",  "/api/bot/status"),
   triggerReport: ()  => req("POST", "/api/bot/trigger", {}),
   sources:       ()  => req("GET",  "/api/bot/sources"),
+
+  // Settings
+  getSettings:  ()    => req("GET",   "/api/settings"),
+  saveSettings: (obj) => req("PATCH", "/api/settings", obj),
 };
 
 export function connectSSE(handlers) {

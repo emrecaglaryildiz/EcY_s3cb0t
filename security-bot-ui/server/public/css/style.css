@@ -333,3 +333,25 @@ select.filter-select:focus { border-color: var(--accent); }
 
 /* ─── Section label ─────────────────────────────────────────────────────── */
 .section-label { font-size: 11px; font-weight: 600; letter-spacing: .8px; text-transform: uppercase; color: var(--text-3); margin-bottom: 12px; }
+
+/* ─── Settings page ─────────────────────────────────────────────────────── */
+.settings-section { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 24px; margin-bottom: 20px; max-width: 620px; }
+.settings-section-title { font-size: 14px; font-weight: 600; color: var(--text-0); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+.settings-icon { color: var(--accent); }
+.settings-desc { font-size: 13px; color: var(--text-2); margin-bottom: 20px; line-height: 1.6; }
+.settings-form { display: flex; flex-direction: column; gap: 16px; }
+.form-row { display: flex; flex-direction: column; gap: 5px; }
+.form-label { font-size: 12px; font-weight: 500; color: var(--text-1); letter-spacing: .2px; }
+.form-input  { background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--r); color: var(--text-0); font-family: var(--font-mono); font-size: 13px; padding: 8px 12px; width: 100%; transition: border-color .15s; }
+.form-input:focus  { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.form-input-sm { max-width: 120px; }
+.form-select { background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--r); color: var(--text-0); font-size: 13px; padding: 8px 12px; width: 100%; cursor: pointer; }
+.form-select:focus { outline: none; border-color: var(--accent); }
+.form-hint { font-size: 11px; color: var(--text-3); font-family: var(--font-mono); }
+.api-key-wrap { position: relative; display: flex; align-items: center; }
+.api-key-wrap .form-input { padding-right: 38px; }
+.btn-eye { position: absolute; right: 8px; background: none; border: none; cursor: pointer; color: var(--text-2); font-size: 15px; padding: 4px; line-height: 1; }
+.btn-eye:hover { color: var(--accent); }
+.settings-actions { display: flex; align-items: center; gap: 14px; padding-top: 4px; }
+.save-status { font-size: 12px; color: var(--success); font-family: var(--font-mono); }
+.save-status.error { color: var(--critical); }

@@ -12,6 +12,7 @@ const signalsRoutes  = require("./routes/signals");
 const botRoutes      = require("./routes/bot");
 const webhookRoutes  = require("./routes/webhook");
 const eventsRoute    = require("./routes/events");
+const settingsRoutes = require("./routes/settings");
 
 const app  = express();
 const PORT = parseInt(process.env.PORT || "3000");
@@ -57,7 +58,8 @@ app.use("/api/telegram/messages", (req, res, next) => {
   botRoutes(req, res, next);
 });
 app.use("/api/webhook", webhookRoutes);
-app.use("/api/events",  eventsRoute);
+app.use("/api/events",   eventsRoute);
+app.use("/api/settings", settingsRoutes);
 
 // ── Dashboard özeti ───────────────────────────────────────────────────────────
 app.get("/api/dashboard", (req, res) => {

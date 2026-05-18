@@ -128,6 +128,21 @@ def send_heartbeat():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# LLM yapılandırması (UI'dan çek)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def fetch_llm_config() -> dict | None:
+    """UI API'sinden LLM ayarlarını çeker; hata durumunda None döner (env fallback)."""
+    try:
+        resp = http_requests.get(f"{WEB_UI_API}/api/settings/llm", timeout=3)
+        if resp.ok:
+            return resp.json()
+    except Exception:
+        pass
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Veri toplama & analiz
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -170,8 +185,10 @@ def collect_all() -> dict:
 def build_report() -> tuple[str, dict]:
     """Rapor metni + ham veri döner."""
     log.info("Veri toplanıyor...")
-    data   = collect_all()
-    log.info("LLM analizi başlatılıyor (provider: %s)...", os.getenv("LLM_PROVIDER", "ollama"))
+    data       = collect_all()
+    llm_config = fetch_llm_config()
+    provider   = (llm_config or {}).get("llm_provider", os.getenv("LLM_PROVIDER", "ollama"))
+    log.info("LLM analizi başlatılıyor (provider: %s)...", provider)
     report = analyze_security_data(
         data["wazuh"],
         data["observium"],
@@ -181,6 +198,7 @@ def build_report() -> tuple[str, dict]:
         data.get("zabbix"),
         data.get("webhooks"),
         data.get("elastic"),
+        llm_config=llm_config,
     )
     ts = datetime.now().strftime("%d.%m.%Y %H:%M")
     return f"{report}\n\n⏱ _{ts} TSİ_", data
