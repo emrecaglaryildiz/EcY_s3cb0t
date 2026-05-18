@@ -82,6 +82,28 @@ def _extract_title(payload: dict, source: str) -> str:
     return f"{source} webhook"
 
 
+# ── UI sinyali push ───────────────────────────────────────────────────────────
+
+def _push_to_ui(entry: dict):
+    """Webhook'u Node.js UI'ye gönderir — sinyal listesinde görünmesi ve SSE için."""
+    try:
+        import requests as _req
+        web_ui = os.getenv("WEB_UI_API", "http://localhost:3000")
+        _req.post(
+            f"{web_ui}/api/signals",
+            json={
+                "source":   entry["source"],
+                "severity": entry["severity"],
+                "title":    entry["title"],
+                "body":     entry.get("title"),
+                "raw":      entry.get("raw"),
+            },
+            timeout=3,
+        )
+    except Exception:
+        pass
+
+
 # ── Flask rotaları ─────────────────────────────────────────────────────────────
 
 @app.route("/webhook", methods=["POST"])
@@ -107,6 +129,9 @@ def receive_webhook(source: str = "generic"):
 
     with _store_lock:
         _store.append(entry)
+
+    # UI API'sine de gönder — hem sinyaller sayfasında görünsün hem SSE yayınlansın
+    _push_to_ui(entry)
 
     log.info("Webhook alındı: source=%s severity=%s title=%s",
              source, entry["severity"], entry["title"])

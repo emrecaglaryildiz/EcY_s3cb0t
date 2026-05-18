@@ -84,6 +84,14 @@ export async function initSettings(container) {
           <span class="form-hint">LLM'den yanıt bekleme süresi.</span>
         </div>
 
+        <div class="form-row">
+          <label class="form-label" for="s-prompt">Sistem Promptu <span style="color:var(--text-3)">(opsiyonel)</span></label>
+          <textarea class="prompt-textarea" id="s-prompt" name="llm_system_prompt"
+            placeholder="Boş bırakırsanız varsayılan Türkçe güvenlik analizi promptu kullanılır."></textarea>
+          <div class="prompt-chars"><span id="prompt-chars">0</span> karakter</div>
+          <span class="form-hint">LLM'e verilecek rol ve talimatları özelleştirin.</span>
+        </div>
+
         <div class="settings-actions">
           <button type="submit" class="btn btn-primary" id="btn-save">Kaydet</button>
           <span id="save-status" class="save-status hidden">✓ Kaydedildi</span>
@@ -127,7 +135,11 @@ export async function initSettings(container) {
   const modelEl    = container.querySelector("#s-model");
   const keyEl      = container.querySelector("#s-key");
   const timeoutEl  = container.querySelector("#s-timeout");
+  const promptEl   = container.querySelector("#s-prompt");
+  const charsEl    = container.querySelector("#prompt-chars");
   const saveStatus = container.querySelector("#save-status");
+
+  promptEl.addEventListener("input", () => { charsEl.textContent = promptEl.value.length; });
 
   function applyProviderUI(prov) {
     const p = PROVIDERS[prov] || PROVIDERS.ollama;
@@ -145,8 +157,10 @@ export async function initSettings(container) {
     const s = await api.getSettings();
     providerEl.value  = s.llm_provider || "ollama";
     urlEl.value       = s.llm_base_url || "";
-    modelEl.value     = s.llm_model    || "";
-    timeoutEl.value   = s.llm_timeout  || "60";
+    modelEl.value     = s.llm_model        || "";
+    timeoutEl.value   = s.llm_timeout      || "60";
+    promptEl.value    = s.llm_system_prompt || "";
+    charsEl.textContent = promptEl.value.length;
     if (s.llm_api_key_set) {
       container.querySelector("#key-hint").textContent = "API key kayıtlı. Değiştirmek için yeni değer girin.";
     }
@@ -168,11 +182,12 @@ export async function initSettings(container) {
     saveStatus.classList.add("hidden");
     try {
       await api.saveSettings({
-        llm_provider: providerEl.value,
-        llm_base_url: urlEl.value.trim(),
-        llm_model:    modelEl.value.trim(),
-        llm_api_key:  keyEl.value,
-        llm_timeout:  timeoutEl.value,
+        llm_provider:      providerEl.value,
+        llm_base_url:      urlEl.value.trim(),
+        llm_model:         modelEl.value.trim(),
+        llm_api_key:       keyEl.value,
+        llm_timeout:       timeoutEl.value,
+        llm_system_prompt: promptEl.value,
       });
       saveStatus.textContent = "✓ Kaydedildi";
       saveStatus.classList.remove("hidden", "error");

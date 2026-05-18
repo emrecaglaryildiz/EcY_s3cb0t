@@ -41,6 +41,7 @@ db.exec(`
     title      TEXT NOT NULL,
     body       TEXT,
     raw        TEXT,
+    ack        INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -66,9 +67,11 @@ db.exec(`
   INSERT OR IGNORE INTO bot_status (id, status) VALUES (1, 'unknown');
 `);
 
-// Mevcut bot_status tablosuna sütun ekle (migration)
+// Mevcut tablolara sütun ekle (migration)
 try { db.exec("ALTER TABLE bot_status ADD COLUMN pending_trigger INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE bot_status ADD COLUMN source_status TEXT");                } catch {}
+try { db.exec("ALTER TABLE bot_status ADD COLUMN pending_alert TEXT");                } catch {}
+try { db.exec("ALTER TABLE signals ADD COLUMN ack INTEGER DEFAULT 0");                } catch {}
 
 // ── LLM ayarları tablosu ──────────────────────────────────────────────────────
 db.exec(`
@@ -79,11 +82,12 @@ db.exec(`
 `);
 const _ins = db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
 for (const [k, v] of [
-  ["llm_provider", "ollama"],
-  ["llm_base_url", "http://localhost:11434"],
-  ["llm_api_key",  ""],
-  ["llm_model",    "qwen2.5:3b"],
-  ["llm_timeout",  "60"],
+  ["llm_provider",     "ollama"],
+  ["llm_base_url",     "http://localhost:11434"],
+  ["llm_api_key",      ""],
+  ["llm_model",        "qwen2.5:3b"],
+  ["llm_timeout",      "60"],
+  ["llm_system_prompt",""],
 ]) _ins.run(k, v);
 
 // İlk admin kullanıcı

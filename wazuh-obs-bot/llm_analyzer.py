@@ -32,6 +32,12 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL    = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 
+def _get_system_prompt(config: dict | None) -> str:
+    """UI'dan özel prompt tanımlıysa onu kullan, yoksa varsayılanı döndür."""
+    custom = (config or {}).get("llm_system_prompt", "").strip()
+    return custom if custom else SYSTEM_PROMPT
+
+
 def _resolve_config(override: dict | None) -> dict:
     """Env değerlerini UI ayarlarıyla birleştirir. UI değerleri önceliklidir."""
     c        = override or {}
@@ -240,7 +246,7 @@ def _call_ollama(user_message: str, cfg: dict) -> str:
         json={
             "model":  cfg["model"],
             "prompt": user_message,
-            "system": SYSTEM_PROMPT,
+            "system": _get_system_prompt(cfg),
             "stream": False,
             "options": {
                 "temperature":    0.3,
@@ -264,7 +270,7 @@ def _call_claude(user_message: str, cfg: dict) -> str:
     msg = client.messages.create(
         model=cfg["model"],
         max_tokens=1500,
-        system=SYSTEM_PROMPT,
+        system=_get_system_prompt(cfg),
         messages=[{"role": "user", "content": user_message}],
     )
     return msg.content[0].text.strip()
@@ -276,7 +282,7 @@ def _call_openai(user_message: str, cfg: dict) -> str:
     resp = client.chat.completions.create(
         model=cfg["model"],
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": _get_system_prompt(cfg)},
             {"role": "user",   "content": user_message},
         ],
         max_tokens=1500,

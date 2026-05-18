@@ -8,7 +8,7 @@ function requireAuth(req, res, next) {
   next();
 }
 
-const ALLOWED_KEYS = ["llm_provider", "llm_base_url", "llm_api_key", "llm_model", "llm_timeout"];
+const ALLOWED_KEYS = ["llm_provider", "llm_base_url", "llm_api_key", "llm_model", "llm_timeout", "llm_system_prompt"];
 
 // GET /api/settings — UI için (API key maskeli)
 router.get("/", requireAuth, (req, res) => {

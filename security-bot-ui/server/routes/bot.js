@@ -14,15 +14,18 @@ router.post("/heartbeat", (req, res) => {
     WHERE id = 1
   `).run(source_status ? JSON.stringify(source_status) : null);
 
-  // pending_trigger'ı atomik olarak oku ve sıfırla
-  const row     = db.prepare("SELECT pending_trigger FROM bot_status WHERE id = 1").get();
+  // pending_trigger ve pending_alert atomik oku + sıfırla
+  const row     = db.prepare("SELECT pending_trigger, pending_alert FROM bot_status WHERE id = 1").get();
   const trigger = row?.pending_trigger === 1;
-  if (trigger) {
-    db.prepare("UPDATE bot_status SET pending_trigger = 0 WHERE id = 1").run();
+  let   alert   = null;
+  if (trigger) db.prepare("UPDATE bot_status SET pending_trigger = 0 WHERE id = 1").run();
+  if (row?.pending_alert) {
+    try { alert = JSON.parse(row.pending_alert); } catch {}
+    db.prepare("UPDATE bot_status SET pending_alert = NULL WHERE id = 1").run();
   }
 
   bus.emit("heartbeat", { status: "online" });
-  res.json({ ok: true, trigger });
+  res.json({ ok: true, trigger, alert });
 });
 
 // Bot durumu

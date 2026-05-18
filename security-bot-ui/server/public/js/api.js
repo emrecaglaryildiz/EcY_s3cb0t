@@ -41,6 +41,9 @@ export const api = {
   // Settings
   getSettings:  ()    => req("GET",   "/api/settings"),
   saveSettings: (obj) => req("PATCH", "/api/settings", obj),
+
+  // Signal actions
+  ackSignal: (id) => req("PATCH", `/api/signals/${id}/ack`, {}),
 };
 
 export function connectSSE(handlers) {

@@ -25,7 +25,7 @@ router.post("/", (req, res) => {
 router.get("/", (req, res) => {
   const limit  = Math.min(parseInt(req.query.limit  || "100"), 500);
   const offset = parseInt(req.query.offset || "0");
-  const { severity, source, since, until } = req.query;
+  const { severity, source, since, until, ack } = req.query;
 
   let where  = "WHERE 1=1";
   const params = [];
@@ -33,10 +33,19 @@ router.get("/", (req, res) => {
   if (source)   { where += " AND source = ?";        params.push(source);   }
   if (since) { where += " AND created_at >= ?"; params.push(since.replace("T", " ")); }
   if (until) { where += " AND created_at <= ?"; params.push(until.replace("T", " ")); }
+  if (ack !== undefined) { where += " AND ack = ?";  params.push(parseInt(ack) || 0); }
 
   const rows  = db.prepare(`SELECT * FROM signals ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
   const total = db.prepare(`SELECT COUNT(*) as cnt FROM signals ${where}`).get(...params).cnt;
   res.json({ total, rows });
+});
+
+// Sinyal onayı (acknowledge)
+router.patch("/:id/ack", (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "Geçersiz id" });
+  db.prepare("UPDATE signals SET ack = 1 WHERE id = ?").run(id);
+  res.json({ ok: true });
 });
 
 // Özet istatistikler
