@@ -31,8 +31,8 @@ router.get("/", (req, res) => {
   const params = [];
   if (severity) { where += " AND severity = ?";      params.push(severity); }
   if (source)   { where += " AND source = ?";        params.push(source);   }
-  if (since)    { where += " AND created_at >= ?";   params.push(since);    }
-  if (until)    { where += " AND created_at <= ?";   params.push(until);    }
+  if (since) { where += " AND created_at >= ?"; params.push(since.replace("T", " ")); }
+  if (until) { where += " AND created_at <= ?"; params.push(until.replace("T", " ")); }
 
   const rows  = db.prepare(`SELECT * FROM signals ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
   const total = db.prepare(`SELECT COUNT(*) as cnt FROM signals ${where}`).get(...params).cnt;
@@ -41,7 +41,8 @@ router.get("/", (req, res) => {
 
 // Özet istatistikler
 router.get("/stats", (req, res) => {
-  const since    = req.query.since || new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const sinceRaw   = req.query.since || new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const since      = sinceRaw.replace("T", " ");
   const bySeverity = db.prepare("SELECT severity, COUNT(*) as cnt FROM signals WHERE created_at >= ? GROUP BY severity").all(since);
   const bySource   = db.prepare("SELECT source, COUNT(*) as cnt FROM signals WHERE created_at >= ? GROUP BY source ORDER BY cnt DESC LIMIT 10").all(since);
   res.json({ bySeverity, bySource, since });

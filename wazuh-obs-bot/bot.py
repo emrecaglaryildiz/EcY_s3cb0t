@@ -180,6 +180,7 @@ def build_report() -> tuple[str, dict]:
         data.get("prometheus"),
         data.get("zabbix"),
         data.get("webhooks"),
+        data.get("elastic"),
     )
     ts = datetime.now().strftime("%d.%m.%Y %H:%M")
     return f"{report}\n\n⏱ _{ts} TSİ_", data

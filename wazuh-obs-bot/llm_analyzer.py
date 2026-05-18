@@ -59,7 +59,8 @@ def _build_user_message(wazuh: dict, observium: dict,
                          fortinet: dict | None,
                          prometheus: dict | None,
                          zabbix: dict | None,
-                         webhooks: dict | None) -> str:
+                         webhooks: dict | None,
+                         elastic: dict | None = None) -> str:
     now_str = datetime.now().strftime("%d.%m.%Y %H:%M")
 
     # Observium
@@ -165,6 +166,19 @@ def _build_user_message(wazuh: dict, observium: dict,
     else:
         wh_section = "(Bu dönemde webhook sinyali gelmedi)"
 
+    # ElasticSearch / OpenSearch
+    if elastic and "cluster" in elastic and "error" not in elastic.get("cluster", {}):
+        cl = elastic["cluster"]
+        el_section = (
+            f"Cluster: {cl.get('cluster_name','?')} — Durum: {cl.get('status','?')} "
+            f"({cl.get('nodes',0)} node, {cl.get('shards_unassigned',0)} unassigned shard)\n"
+            f"Son dönem hata sayısı: {elastic.get('error_count',0)}, uyarı: {elastic.get('warn_count',0)}\n"
+            f"Önemli eventler:\n"
+            f"{json.dumps(elastic.get('top_events',[])[:10], ensure_ascii=False, indent=2)}"
+        )
+    else:
+        el_section = "(ElasticSearch/OpenSearch yapılandırılmamış)"
+
     return f"""Tarih/Saat: {now_str} (TSİ)
 
 === WAZUH GÜVENLİK VERİLERİ ===
@@ -184,6 +198,9 @@ def _build_user_message(wazuh: dict, observium: dict,
 
 === ZABBIX ===
 {zabbix_section}
+
+=== ELASTİCSEARCH / OPENSEARCH ===
+{el_section}
 
 === WEBHOOK SİNYALLERİ ===
 {wh_section}
@@ -264,11 +281,12 @@ def analyze_security_data(
     prometheus_data: dict | None = None,
     zabbix_data: dict | None = None,
     webhook_data: dict | None = None,
+    elastic_data: dict | None = None,
 ) -> str:
     """Ham verileri LLM'e gönderir, Türkçe analiz raporu döner."""
     user_message = _build_user_message(
         wazuh_data, observium_data, graylog_data,
-        fortinet_data, prometheus_data, zabbix_data, webhook_data,
+        fortinet_data, prometheus_data, zabbix_data, webhook_data, elastic_data,
     )
 
     provider_label = {"ollama": f"Ollama/{OLLAMA_MODEL}",
@@ -282,13 +300,13 @@ def analyze_security_data(
         return (
             f"⚠️ *LLM zaman aşımı* ({provider_label}) — model yanıt vermedi.\n\n"
             + _fallback_summary(wazuh_data, observium_data, graylog_data,
-                                fortinet_data, prometheus_data, zabbix_data, webhook_data)
+                                fortinet_data, prometheus_data, zabbix_data, webhook_data, elastic_data)
         )
     except Exception as e:
         return (
             f"⚠️ *LLM hatası* ({provider_label}): `{e}`\n\n"
             + _fallback_summary(wazuh_data, observium_data, graylog_data,
-                                fortinet_data, prometheus_data, zabbix_data, webhook_data)
+                                fortinet_data, prometheus_data, zabbix_data, webhook_data, elastic_data)
         )
 
 
@@ -299,7 +317,8 @@ def _fallback_summary(wazuh: dict, obs: dict,
                        fortinet: dict | None = None,
                        prometheus: dict | None = None,
                        zabbix: dict | None = None,
-                       webhooks: dict | None = None) -> str:
+                       webhooks: dict | None = None,
+                       elastic: dict | None = None) -> str:
     lines = ["📊 *Ham Veri Özeti*\n"]
 
     # Wazuh
@@ -361,5 +380,11 @@ def _fallback_summary(wazuh: dict, obs: dict,
                      f"(🔴 {webhooks.get('critical_count',0)} kritik)")
         for e in webhooks.get("critical_events", [])[:3]:
             lines.append(f"  🔴 `{e.get('source','?')}` — {e.get('title','?')}")
+
+    # ElasticSearch
+    if elastic and elastic.get("error_count", 0) + elastic.get("warn_count", 0) > 0:
+        cl = elastic.get("cluster", {})
+        lines.append(f"🔍 *Elastic:* {cl.get('cluster_name','?')} [{cl.get('status','?')}] | "
+                     f"🔴 {elastic.get('error_count',0)} hata, 🟡 {elastic.get('warn_count',0)} uyarı")
 
     return "\n".join(lines)
