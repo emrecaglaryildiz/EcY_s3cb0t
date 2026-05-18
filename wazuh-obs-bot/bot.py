@@ -50,7 +50,7 @@ CHAT_ID  = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
 INTERVAL = int(os.getenv("CHECK_INTERVAL_MINUTES", "30"))
 
 # Web UI API adresi (aynı sunucuda çalışıyorsa)
-WEB_UI_API = os.getenv("WEB_UI_API", "http://localhost:5000")
+WEB_UI_API = os.getenv("WEB_UI_API", "http://localhost:3000")
 
 _app: Application | None = None
 _loop: asyncio.AbstractEventLoop | None = None
@@ -92,7 +92,7 @@ def log_telegram_message(content: str, message_type: str = "report",
             "status":        status,
             "triggerSource": trigger_source,
         }
-        http_requests.post(f"{WEB_UI_API}/api/telegram/messages", json=payload, timeout=5)
+        http_requests.post(f"{WEB_UI_API}/api/bot/telegram/messages", json=payload, timeout=5)
     except Exception as e:
         log.warning("Telegram mesaj log hatası: %s", e)
 

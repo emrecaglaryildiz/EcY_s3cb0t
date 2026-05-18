@@ -53,10 +53,6 @@ app.use("/api/auth",    authRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/signals", signalsRoutes);
 app.use("/api/bot",     botRoutes);
-app.use("/api/telegram/messages", (req, res, next) => {
-  req.url = "/telegram/messages";
-  botRoutes(req, res, next);
-});
 app.use("/api/webhook", webhookRoutes);
 app.use("/api/events",   eventsRoute);
 app.use("/api/settings", settingsRoutes);

@@ -4,7 +4,7 @@ const db      = require("../db");
 const router  = express.Router();
 
 function requireAuth(req, res, next) {
-  if (!req.session?.userId) return res.status(401).json({ error: "Yetkisiz" });
+  if (!req.session?.user?.id) return res.status(401).json({ error: "Yetkisiz" });
   next();
 }
 

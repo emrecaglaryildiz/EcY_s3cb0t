@@ -20,7 +20,7 @@ export const api = {
   me:             ()      => req("GET",  "/api/auth/me"),
   login:          (u, p)  => req("POST", "/api/auth/login", { username: u, password: p }),
   logout:         ()      => req("POST", "/api/auth/logout"),
-  changePassword: (c, n)  => req("POST", "/api/auth/change-password", { current: c, newPassword: n }),
+  changePassword: (c, n)  => req("POST", "/api/auth/change-password", { current: c, next: n }),
 
   // Dashboard
   dashboard:      ()      => req("GET",  "/api/dashboard"),
