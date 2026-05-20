@@ -16,7 +16,7 @@ router.get("/", requireSession, (req, res) => {
 });
 
 // PATCH /api/settings — UI'dan güncelle
-router.patch("/", requireAuth, (req, res) => {
+router.patch("/", requireSession, (req, res) => {
   const updates = req.body || {};
   const upsert  = db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
   db.transaction(() => {
