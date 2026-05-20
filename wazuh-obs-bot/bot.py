@@ -165,8 +165,27 @@ def send_heartbeat():
         if data.get("alert"):
             log.info("Kritik sinyal uyarısı alındı — anlık bildirim gönderiliyor…")
             threading.Thread(target=_send_critical_alert, args=(data["alert"],), daemon=True).start()
+        if data.get("telegram_message"):
+            msg = data["telegram_message"]
+            log.info("UI'dan Telegram mesajı alındı — gönderiliyor…")
+            threading.Thread(target=_send_ui_telegram_message, args=(msg,), daemon=True).start()
     except Exception:
         pass
+
+
+def _send_ui_telegram_message(content: str):
+    """UI sohbet penceresinden gelen mesajı Telegram'a iletir."""
+    try:
+        if _app and _loop:
+            for chunk in split_message(f"💬 *UI Sohbet Mesajı:*\n\n{content}"):
+                future = asyncio.run_coroutine_threadsafe(
+                    _app.bot.send_message(chat_id=CHAT_ID, text=chunk, parse_mode="Markdown"),
+                    _loop,
+                )
+                future.result(timeout=10)
+        log_telegram_message(content, message_type="chat", trigger_source="ui")
+    except Exception as e:
+        log.warning("UI Telegram mesaj gönderilemedi: %s", e)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

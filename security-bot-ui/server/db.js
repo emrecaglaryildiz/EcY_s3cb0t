@@ -64,6 +64,13 @@ db.exec(`
     source_status   TEXT
   );
 
+  CREATE TABLE IF NOT EXISTS chat_messages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    role       TEXT NOT NULL,
+    content    TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
   INSERT OR IGNORE INTO bot_status (id, status) VALUES (1, 'unknown');
 `);
 
@@ -71,6 +78,7 @@ db.exec(`
 try { db.exec("ALTER TABLE bot_status ADD COLUMN pending_trigger INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE bot_status ADD COLUMN source_status TEXT");                } catch {}
 try { db.exec("ALTER TABLE bot_status ADD COLUMN pending_alert TEXT");                } catch {}
+try { db.exec("ALTER TABLE bot_status ADD COLUMN pending_telegram TEXT");             } catch {}
 try { db.exec("ALTER TABLE signals ADD COLUMN ack INTEGER DEFAULT 0");                } catch {}
 
 // ── LLM ayarları tablosu ──────────────────────────────────────────────────────

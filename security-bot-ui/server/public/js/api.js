@@ -44,6 +44,12 @@ export const api = {
 
   // Signal actions
   ackSignal: (id) => req("PATCH", `/api/signals/${id}/ack`, {}),
+
+  // Chat
+  chatHistory:     (limit = 100)     => req("GET",    `/api/chat/history?limit=${limit}`),
+  chatMessage:     (message, history) => req("POST",  "/api/chat/message", { message, history }),
+  chatSendTelegram:(content)          => req("POST",  "/api/chat/send-telegram", { content }),
+  chatClearHistory:()                 => req("DELETE", "/api/chat/history"),
 };
 
 export function connectSSE(handlers) {
