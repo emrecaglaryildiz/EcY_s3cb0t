@@ -114,6 +114,61 @@ for (const [k, v] of [
   // Telegram
   ["telegram_token",    ""],
   ["telegram_chat_id",  ""],
+  // Bildirimler — SMTP
+  ["smtp_host",             ""],
+  ["smtp_port",             "587"],
+  ["smtp_user",             ""],
+  ["smtp_pass",             ""],
+  ["smtp_from",             ""],
+  ["smtp_to",               ""],
+  ["smtp_tls",              "1"],
+  ["smtp_on_critical_only", "1"],
+  // Bildirimler — Slack
+  ["slack_webhook_url",      ""],
+  ["slack_channel",          ""],
+  ["slack_on_critical_only", "1"],
+  // Bildirimler — Teams
+  ["teams_webhook_url",      ""],
+  ["teams_on_critical_only", "1"],
+  // Graylog
+  ["graylog_host",          ""],
+  ["graylog_user",          ""],
+  ["graylog_pass",          ""],
+  ["graylog_range_seconds", "3600"],
+  ["graylog_verify_ssl",    "0"],
+  // Fortinet
+  ["fortinet_host",        ""],
+  ["fortinet_auth",        "token"],
+  ["fortinet_api_token",   ""],
+  ["fortinet_user",        "admin"],
+  ["fortinet_pass",        ""],
+  ["fortinet_vdom",        "root"],
+  ["fortinet_verify_ssl",  "0"],
+  ["fortinet_timeout",     "15"],
+  // Prometheus
+  ["prometheus_host",       ""],
+  ["alertmanager_host",     ""],
+  ["prometheus_user",       ""],
+  ["prometheus_pass",       ""],
+  ["prometheus_verify_ssl", "0"],
+  ["prometheus_timeout",    "15"],
+  // Zabbix
+  ["zabbix_host",       ""],
+  ["zabbix_user",       "Admin"],
+  ["zabbix_pass",       ""],
+  ["zabbix_api_token",  ""],
+  ["zabbix_verify_ssl", "0"],
+  ["zabbix_timeout",    "15"],
+  // Elastic
+  ["elastic_host",       ""],
+  ["elastic_user",       "elastic"],
+  ["elastic_pass",       ""],
+  ["elastic_index",      "*"],
+  ["elastic_verify_ssl", "0"],
+  ["elastic_timeout",    "15"],
+  // Genel
+  ["check_interval_minutes", "30"],
+  ["webhook_max_store",      "200"],
 ]) _ins.run(k, v);
 
 // ── İndeksler ─────────────────────────────────────────────────────────────────

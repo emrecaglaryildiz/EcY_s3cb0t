@@ -97,7 +97,17 @@ def get_recent_events(interval_minutes: int = 30) -> list:
         return []
 
 
-def get_summary() -> dict:
+def get_summary(config: dict = None) -> dict:
+    global ELASTIC_HOST, ELASTIC_USER, ELASTIC_PASS, ELASTIC_INDEX, ELASTIC_VERIFY_SSL, ELASTIC_TIMEOUT, ENABLED
+    if config:
+        if config.get("elastic_host"):       ELASTIC_HOST       = config["elastic_host"]
+        if config.get("elastic_user"):       ELASTIC_USER       = config["elastic_user"]
+        if config.get("elastic_pass"):       ELASTIC_PASS       = config["elastic_pass"]
+        if config.get("elastic_index"):      ELASTIC_INDEX      = config["elastic_index"]
+        if config.get("elastic_verify_ssl") is not None:
+            ELASTIC_VERIFY_SSL = config["elastic_verify_ssl"] == "1"
+        if config.get("elastic_timeout"):    ELASTIC_TIMEOUT    = int(config["elastic_timeout"])
+        ENABLED = bool(ELASTIC_HOST)
     if not ENABLED:
         return {}
     health = get_cluster_health()

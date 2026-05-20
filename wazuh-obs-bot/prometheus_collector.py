@@ -92,8 +92,19 @@ def _get_alertmanager_firing() -> list[dict]:
 
 # ── Toplu özet ────────────────────────────────────────────────────────────────
 
-def get_summary() -> dict:
+def get_summary(config: dict = None) -> dict:
     """Prometheus + Alertmanager firing alert özeti."""
+    global PROMETHEUS_HOST, ALERTMANAGER_HOST, PROM_USER, PROM_PASS, VERIFY_SSL, TIMEOUT
+    if config:
+        if config.get("prometheus_host"):     PROMETHEUS_HOST   = config["prometheus_host"].rstrip("/")
+        if config.get("alertmanager_host"):   ALERTMANAGER_HOST = config["alertmanager_host"].rstrip("/")
+        if config.get("prometheus_user"):     PROM_USER         = config["prometheus_user"]
+        if config.get("prometheus_pass"):     PROM_PASS         = config["prometheus_pass"]
+        if config.get("prometheus_verify_ssl") is not None:
+            VERIFY_SSL = config["prometheus_verify_ssl"] == "1"
+        if config.get("prometheus_timeout"):  TIMEOUT           = int(config["prometheus_timeout"])
+    if not PROMETHEUS_HOST and not ALERTMANAGER_HOST:
+        return {}
     prom_raw = _get_prometheus_firing()
     am_raw   = _get_alertmanager_firing()
 

@@ -266,8 +266,18 @@ def get_log_stats(range_seconds: int | None = None) -> dict:
 
 # ── Hızlı özet (bot.py tarafından çağrılır) ──────────────────────────────────
 
-def get_summary() -> dict:
+def get_summary(config: dict = None) -> dict:
     """Tüm Graylog verilerini tek seferde toplar ve birleşik özet döner."""
+    global GL_HOST, GL_USER, GL_PASS, GL_RANGE, GL_VERIFY_SSL
+    if config:
+        if config.get("graylog_host"):          GL_HOST       = config["graylog_host"].rstrip("/")
+        if config.get("graylog_user"):           GL_USER       = config["graylog_user"]
+        if config.get("graylog_pass"):           GL_PASS       = config["graylog_pass"]
+        if config.get("graylog_range_seconds"):  GL_RANGE      = int(config["graylog_range_seconds"])
+        if config.get("graylog_verify_ssl") is not None:
+            GL_VERIFY_SSL = config["graylog_verify_ssl"] == "1"
+    if not GL_HOST or GL_HOST == "http://localhost:9000":
+        return {}
     system = get_system_overview()
     notifications = get_notifications()
     events = get_events()

@@ -251,16 +251,16 @@ def collect_all(src_cfg: dict = None) -> dict:
     }
     if cfg.get("wazuh_host") or os.getenv("GRAYLOG_HOST", ""):
         pass  # graylog uses own env
-    if os.getenv("GRAYLOG_HOST", ""):
-        tasks["graylog"] = gl_get_summary
-    if os.getenv("FORTINET_HOST", ""):
-        tasks["fortinet"] = ft_get_summary
-    if os.getenv("PROMETHEUS_HOST", "") or os.getenv("ALERTMANAGER_HOST", ""):
-        tasks["prometheus"] = prom_get_summary
-    if os.getenv("ZABBIX_HOST", ""):
-        tasks["zabbix"] = zbx_get_summary
-    if os.getenv("ELASTIC_HOST", ""):
-        tasks["elastic"] = el_get_summary
+    if cfg.get("graylog_host") or os.getenv("GRAYLOG_HOST", ""):
+        tasks["graylog"] = lambda: gl_get_summary(config=cfg)
+    if cfg.get("fortinet_host") or os.getenv("FORTINET_HOST", ""):
+        tasks["fortinet"] = lambda: ft_get_summary(config=cfg)
+    if cfg.get("prometheus_host") or cfg.get("alertmanager_host") or os.getenv("PROMETHEUS_HOST", "") or os.getenv("ALERTMANAGER_HOST", ""):
+        tasks["prometheus"] = lambda: prom_get_summary(config=cfg)
+    if cfg.get("zabbix_host") or os.getenv("ZABBIX_HOST", ""):
+        tasks["zabbix"] = lambda: zbx_get_summary(config=cfg)
+    if cfg.get("elastic_host") or os.getenv("ELASTIC_HOST", ""):
+        tasks["elastic"] = lambda: el_get_summary(config=cfg)
     tasks["webhooks"] = wh_get_summary  # her zaman çalışır (yerel deque)
 
     results: dict = {}
@@ -362,7 +362,10 @@ async def cmd_durum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await send_chunks(ctx.bot, update.message.chat_id, report_text,
                           message_type="report", trigger_source="manual")
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "manual")
-        smtp_send_report(report_text)
+        _cfg = fetch_source_config()
+        smtp_send_report(report_text, config=_cfg)
+        slack_send_report(report_text, config=_cfg)
+        teams_send_report(report_text, config=_cfg)
     except Exception as e:
         log.error("cmd_durum hatası: %s", e)
         await update.message.reply_text(f"❌ Hata oluştu: `{e}`", parse_mode="Markdown")
@@ -831,9 +834,10 @@ def _scheduled_job():
             )
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "auto")
         log_telegram_message(report_text, message_type="report", trigger_source="auto")
-        smtp_send_report(report_text)
-        slack_send_report(report_text)
-        teams_send_report(report_text)
+        _cfg = fetch_source_config()
+        smtp_send_report(report_text, config=_cfg)
+        slack_send_report(report_text, config=_cfg)
+        teams_send_report(report_text, config=_cfg)
         log.info("Zamanlanmış rapor gönderildi.")
     except Exception as e:
         log.error("Zamanlanmış rapor gönderilemedi: %s", e)
@@ -866,7 +870,10 @@ def run_once():
         report_text, data = build_report()
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "manual")
         log_telegram_message(report_text, message_type="report", trigger_source="manual")
-        smtp_send_report(report_text)
+        _cfg = fetch_source_config()
+        smtp_send_report(report_text, config=_cfg)
+        slack_send_report(report_text, config=_cfg)
+        teams_send_report(report_text, config=_cfg)
 
         async def _send():
             bot = Application.builder().token(TOKEN).build()
