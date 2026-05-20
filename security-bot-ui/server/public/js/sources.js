@@ -40,18 +40,29 @@ export async function initSources(el) {
 async function loadSources(el) {
   const container = el.querySelector("#sources-container");
   try {
-    const [srcData, statData] = await Promise.all([
+    const [srcData, statData, botData] = await Promise.all([
       api.sources().catch(() => ({ sources: {} })),
       api.signalStats().catch(() => ({ bySource: [] })),
+      api.botStatus().catch(() => ({ status: "unknown" })),
     ]);
 
-    const status   = srcData.sources || {};
+    const botOnline   = botData.status === "online";
+    const status      = srcData.sources || {};
+    const hasStatus   = Object.keys(status).length > 0;
     const sigBySource = Object.fromEntries((statData.bySource || []).map(s => [s.source?.toLowerCase(), s.cnt]));
 
     const dataSources  = Object.entries(SOURCE_META).filter(([, m]) => m.group === "data").map(([k]) => k);
     const notifSources = Object.entries(SOURCE_META).filter(([, m]) => m.group === "notif").map(([k]) => k);
 
+    const botBanner = !botOnline
+      ? `<div class="alert alert-warning" style="margin-bottom:16px">
+           ⚠️ <strong>Bot bağlı değil</strong> — kaynak durumları bot heartbeat alındığında güncellenecek.
+           Bot konteyneri çalışıyorsa <code>make logs-bot</code> ile kontrol edin.
+         </div>`
+      : "";
+
     container.innerHTML = `
+      ${botBanner}
       <div style="margin-bottom:24px">
         <div class="section-label">Veri Kaynakları</div>
         <div class="sources-grid" id="grid-data"></div>
@@ -62,21 +73,30 @@ async function loadSources(el) {
       </div>
     `;
 
-    renderCards(container.querySelector("#grid-data"),  dataSources,  status, sigBySource);
-    renderCards(container.querySelector("#grid-notif"), notifSources, status, sigBySource);
+    renderCards(container.querySelector("#grid-data"),  dataSources,  status, sigBySource, botOnline);
+    renderCards(container.querySelector("#grid-notif"), notifSources, status, sigBySource, botOnline);
   } catch (e) {
     container.innerHTML = `<div style="color:var(--critical);padding:20px">Yüklenemedi: ${e.message}</div>`;
   }
 }
 
-function renderCards(grid, keys, status, sigBySource) {
+function renderCards(grid, keys, status, sigBySource, botOnline) {
   grid.innerHTML = keys.map(key => {
     const meta    = SOURCE_META[key];
     const active  = status[key] === true;
+    const configured = status[key] === false;  // bot bildirdi ama devre dışı
     const unknown = status[key] === undefined;
-    const cls     = active ? "active" : "inactive";
-    const badge   = active ? "active" : "disabled";
-    const label   = active ? "Aktif" : unknown ? "Bilinmiyor" : "Devre Dışı";
+
+    let cls, badge, label;
+    if (active) {
+      cls = "active"; badge = "active"; label = "Aktif";
+    } else if (!botOnline && unknown) {
+      cls = "inactive"; badge = "pending"; label = "Bot Offline";
+    } else if (configured) {
+      cls = "inactive"; badge = "disabled"; label = "Devre Dışı";
+    } else {
+      cls = "inactive"; badge = "disabled"; label = "Bilinmiyor";
+    }
     const sigs    = sigBySource[key] || 0;
 
     return `<div class="source-card ${cls}">

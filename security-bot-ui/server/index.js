@@ -14,6 +14,7 @@ const botRoutes      = require("./routes/bot");
 const webhookRoutes  = require("./routes/webhook");
 const eventsRoute    = require("./routes/events");
 const settingsRoutes = require("./routes/settings");
+const chatRoutes     = require("./routes/chat");
 
 // ── Başlangıç doğrulaması ─────────────────────────────────────────────────────
 const SESSION_SECRET = process.env.SESSION_SECRET;
@@ -65,6 +66,7 @@ app.use("/api/bot",     botRoutes);
 app.use("/api/webhook", webhookRoutes);
 app.use("/api/events",   eventsRoute);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/chat",    chatRoutes);
 
 // ── Dashboard özeti (oturum gerektirir) ───────────────────────────────────────
 app.get("/api/dashboard", requireSession, (req, res) => {

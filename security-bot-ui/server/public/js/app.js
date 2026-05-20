@@ -4,6 +4,7 @@ import { initDashboard }   from "./dashboard.js";
 import { initSignals }     from "./signals.js";
 import { initReports }     from "./reports.js";
 import { initSources }     from "./sources.js";
+import { initChat }        from "./chat.js";
 import { initSettings }    from "./settings.js";
 
 // ── Sayfa haritası ──────────────────────────────────────────────────────────
@@ -12,6 +13,7 @@ const PAGES = {
   signals:   initSignals,
   reports:   initReports,
   sources:   initSources,
+  chat:      initChat,
   settings:  initSettings,
 };
 

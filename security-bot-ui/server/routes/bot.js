@@ -16,17 +16,22 @@ router.post("/heartbeat", requireBotAuth, (req, res) => {
   `).run(source_status ? JSON.stringify(source_status) : null);
 
   // pending_trigger ve pending_alert atomik oku + sıfırla
-  const row     = db.prepare("SELECT pending_trigger, pending_alert FROM bot_status WHERE id = 1").get();
+  const row     = db.prepare("SELECT pending_trigger, pending_alert, pending_telegram FROM bot_status WHERE id = 1").get();
   const trigger = row?.pending_trigger === 1;
-  let   alert   = null;
+  let   alert    = null;
+  let   telegramMsg = null;
   if (trigger) db.prepare("UPDATE bot_status SET pending_trigger = 0 WHERE id = 1").run();
   if (row?.pending_alert) {
     try { alert = JSON.parse(row.pending_alert); } catch {}
     db.prepare("UPDATE bot_status SET pending_alert = NULL WHERE id = 1").run();
   }
+  if (row?.pending_telegram) {
+    telegramMsg = row.pending_telegram;
+    db.prepare("UPDATE bot_status SET pending_telegram = NULL WHERE id = 1").run();
+  }
 
   bus.emit("heartbeat", { status: "online" });
-  res.json({ ok: true, trigger, alert });
+  res.json({ ok: true, trigger, alert, telegram_message: telegramMsg });
 });
 
 // Bot durumu (oturum gerektirir)
