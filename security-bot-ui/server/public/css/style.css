@@ -356,6 +356,13 @@ select.filter-select:focus { border-color: var(--accent); }
 .save-status { font-size: 12px; color: var(--success); font-family: var(--font-mono); }
 .save-status.error { color: var(--critical); }
 
+/* ─── Settings tabs ──────────────────────────────────────────────────────── */
+.settings-tabs { display:flex; gap:4px; margin-bottom:20px; flex-wrap:wrap; }
+.settings-tab-btn { background:var(--bg-3); border:1px solid var(--border); border-radius:var(--r); padding:6px 14px; color:var(--text-2); cursor:pointer; font-size:13px; }
+.settings-tab-btn.active { background:var(--accent-dim); border-color:var(--accent-muted); color:var(--accent); }
+.settings-tab-content { display:none; }
+.settings-tab-content.active { display:block; }
+
 /* ─── Signal ack ────────────────────────────────────────────────────────── */
 .ack-btn  { background: none; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text-3); font-size: 12px; cursor: pointer; padding: 2px 7px; line-height: 1.4; transition: all .15s; }
 .ack-btn:hover  { border-color: var(--success); color: var(--success); background: var(--success-bg); }

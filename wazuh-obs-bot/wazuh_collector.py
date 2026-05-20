@@ -20,26 +20,39 @@ VERIFY_SSL   = os.getenv("WAZUH_VERIFY_SSL", "0") == "1"
 
 
 def get_wazuh_token() -> str | None:
-    """Wazuh JWT token al."""
+    """Wazuh JWT token al (env var defaults)."""
+    return _get_wazuh_token_cfg(WAZUH_HOST, WAZUH_USER, WAZUH_PASS, VERIFY_SSL)
+
+
+def _get_wazuh_token_cfg(host: str, user: str, pwd: str, verify_ssl: bool) -> str | None:
+    """Wazuh JWT token al (config parametreleri ile)."""
     try:
         r = requests.get(
-            f"{WAZUH_HOST}/security/user/authenticate",
-            auth=(WAZUH_USER, WAZUH_PASS),
-            verify=VERIFY_SSL,
+            f"{host}/security/user/authenticate",
+            auth=(user, pwd),
+            verify=verify_ssl,
             timeout=10,
         )
         r.raise_for_status()
         return r.json()["data"]["token"]
-    except Exception as e:
+    except Exception:
         return None
 
 
-def get_recent_alerts() -> dict:
+def get_recent_alerts(config: dict = None) -> dict:
     """
     Son CHECK_INTERVAL_MINUTES dakikanın kritik alertlerini çeker,
     agent durumlarıyla birlikte özetlenmiş dict döner.
+    config dict'i UI'dan gelen ayarları içerebilir; yoksa env var kullanılır.
     """
-    token = get_wazuh_token()
+    cfg = config or {}
+    host       = cfg.get("wazuh_host")        or WAZUH_HOST
+    user       = cfg.get("wazuh_user")        or WAZUH_USER
+    pwd        = cfg.get("wazuh_pass")        or WAZUH_PASS
+    alert_lvl  = int(cfg.get("wazuh_alert_level") or ALERT_LEVEL)
+    verify_ssl = (cfg.get("wazuh_verify_ssl") or os.getenv("WAZUH_VERIFY_SSL", "0")) == "1"
+
+    token = _get_wazuh_token_cfg(host, user, pwd, verify_ssl)
     if not token:
         return {"error": "Wazuh bağlantısı kurulamadı — token alınamadı."}
 
@@ -52,14 +65,14 @@ def get_recent_alerts() -> dict:
             datetime.now(timezone.utc) - timedelta(minutes=interval)
         ).strftime("%Y-%m-%dT%H:%M:%SZ")
         r_alerts = requests.get(
-            f"{WAZUH_HOST}/alerts",
+            f"{host}/alerts",
             headers=headers,
             params={
                 "limit": 500,
                 "sort": "-timestamp",
-                "q": f"rule.level>={ALERT_LEVEL};timestamp>={since}",
+                "q": f"rule.level>={alert_lvl};timestamp>={since}",
             },
-            verify=VERIFY_SSL,
+            verify=verify_ssl,
             timeout=20,
         )
         r_alerts.raise_for_status()
@@ -67,10 +80,10 @@ def get_recent_alerts() -> dict:
 
         # ── Agent durumları ───────────────────────────────────────────────
         r_agents = requests.get(
-            f"{WAZUH_HOST}/agents",
+            f"{host}/agents",
             headers=headers,
             params={"limit": 500},
-            verify=VERIFY_SSL,
+            verify=verify_ssl,
             timeout=20,
         )
         r_agents.raise_for_status()

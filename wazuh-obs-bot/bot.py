@@ -138,16 +138,17 @@ def _send_critical_alert(alert: dict):
 def send_heartbeat():
     """Web UI'ye kaynak durumu ile birlikte heartbeat gönder; tetik/kritik alert varsa işle."""
     try:
+        src_cfg = fetch_source_config()
         source_status = {
-            "wazuh":        bool(os.getenv("WAZUH_HOST")),
-            "observium":    bool(os.getenv("OBSERVIUM_HOST")),
+            "wazuh":        bool(src_cfg.get("wazuh_host") or os.getenv("WAZUH_HOST")),
+            "observium":    bool(src_cfg.get("obs_host") or os.getenv("OBSERVIUM_HOST")),
             "graylog":      bool(os.getenv("GRAYLOG_HOST")),
             "fortinet":     bool(os.getenv("FORTINET_HOST")),
             "prometheus":   bool(os.getenv("PROMETHEUS_HOST") or os.getenv("ALERTMANAGER_HOST")),
             "zabbix":       bool(os.getenv("ZABBIX_HOST")),
             "elastic":      bool(os.getenv("ELASTIC_HOST")),
             "webhook":      True,
-            "telegram":     bool(os.getenv("TELEGRAM_TOKEN")),
+            "telegram":     bool(src_cfg.get("telegram_token") or os.getenv("TELEGRAM_TOKEN")),
             "smtp":         bool(os.getenv("SMTP_HOST")),
             "slack":        bool(os.getenv("SLACK_WEBHOOK_URL")),
             "teams":        bool(os.getenv("TEAMS_WEBHOOK_URL")),
@@ -203,15 +204,53 @@ def fetch_llm_config() -> dict | None:
     return None
 
 
+def fetch_source_config() -> dict:
+    """UI API'sinden kaynak yapılandırmalarını çeker; hata durumunda boş dict döner."""
+    try:
+        resp = http_requests.get(f"{WEB_UI_API}/api/settings/sources", headers=_bot_headers(), timeout=3)
+        if resp.ok:
+            return resp.json()
+    except Exception:
+        pass
+    return {}
+
+
+def _merge_config(cfg: dict, prefix: str, env_map: dict) -> dict:
+    """UI settings (prefix_key) ile env var fallback birleştirir."""
+    result = {}
+    for key, env_var in env_map.items():
+        ui_val = cfg.get(f"{prefix}_{key}", "")
+        result[key] = ui_val if ui_val else os.getenv(env_var, "")
+    return result
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Veri toplama & analiz
 # ─────────────────────────────────────────────────────────────────────────────
 
-def collect_all() -> dict:
+def collect_all(src_cfg: dict = None) -> dict:
+    cfg = src_cfg or {}
+
+    # Backend seçimi
+    wazuh_backend = cfg.get("wazuh_backend") or os.getenv("WAZUH_BACKEND", "api")
+    obs_backend   = cfg.get("obs_backend")   or os.getenv("OBS_BACKEND", "requests")
+
+    if wazuh_backend == "elasticsearch":
+        from wazuh_es_collector import get_recent_alerts as wazuh_fn
+    else:
+        from wazuh_collector import get_recent_alerts as wazuh_fn
+
+    if obs_backend == "selenium":
+        from observium_selenium import get_summary as obs_fn
+    else:
+        obs_fn = obs_get_summary
+
     tasks: dict[str, callable] = {
-        "wazuh":     get_recent_alerts,
-        "observium": obs_get_summary,
+        "wazuh":     lambda: wazuh_fn(config=cfg),
+        "observium": lambda: obs_fn(config=cfg) if obs_backend == "selenium" else obs_fn(),
     }
+    if cfg.get("wazuh_host") or os.getenv("GRAYLOG_HOST", ""):
+        pass  # graylog uses own env
     if os.getenv("GRAYLOG_HOST", ""):
         tasks["graylog"] = gl_get_summary
     if os.getenv("FORTINET_HOST", ""):
@@ -246,7 +285,8 @@ def collect_all() -> dict:
 def build_report() -> tuple[str, dict]:
     """Rapor metni + ham veri döner."""
     log.info("Veri toplanıyor...")
-    data       = collect_all()
+    src_cfg    = fetch_source_config()
+    data       = collect_all(src_cfg)
     llm_config = fetch_llm_config()
     provider   = (llm_config or {}).get("llm_provider", os.getenv("LLM_PROVIDER", "ollama"))
     log.info("LLM analizi başlatılıyor (provider: %s)...", provider)
