@@ -91,11 +91,29 @@ db.exec(`
 const _ins = db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
 for (const [k, v] of [
   ["llm_provider",     "ollama"],
-  ["llm_base_url",     "http://localhost:11434"],
+  ["llm_base_url",     "http://host.docker.internal:11434"],
   ["llm_api_key",      ""],
   ["llm_model",        "qwen2.5:3b"],
   ["llm_timeout",      "60"],
   ["llm_system_prompt",""],
+  // Wazuh
+  ["wazuh_host",        "https://wazuh-server:55000"],
+  ["wazuh_user",        "apiuser"],
+  ["wazuh_pass",        ""],
+  ["wazuh_alert_level", "7"],
+  ["wazuh_verify_ssl",  "0"],
+  ["wazuh_backend",     "api"],
+  ["wazuh_es_host",     ""],
+  ["wazuh_es_user",     ""],
+  ["wazuh_es_pass",     ""],
+  // Observium
+  ["obs_host",          "http://observium"],
+  ["obs_user",          "admin"],
+  ["obs_pass",          ""],
+  ["obs_backend",       "requests"],
+  // Telegram
+  ["telegram_token",    ""],
+  ["telegram_chat_id",  ""],
 ]) _ins.run(k, v);
 
 // ── İndeksler ─────────────────────────────────────────────────────────────────
