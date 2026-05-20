@@ -1,10 +1,18 @@
 // signals.js — Sinyal geçmişi ve canlı akış
 import { api }                                 from "./api.js";
-import { relTime, fmtTime, sevIcon, escHtml }  from "./app.js";
+import { relTime, fmtTime, sevIcon, escHtml, toast }  from "./app.js";
 
-let activeFilter = { severity: "", source: "" };
+let activeFilter  = { severity: "", source: "", ack: "0" };
 let currentOffset = 0;
-const PAGE_SIZE = 50;
+const PAGE_SIZE   = 50;
+
+const TABS = [
+  { label: "Tümü",       sev: "",         ack: "" },
+  { label: "🔴 Kritik",  sev: "critical", ack: "0" },
+  { label: "🟡 Uyarı",   sev: "warning",  ack: "0" },
+  { label: "🔵 Bilgi",   sev: "info",     ack: "0" },
+  { label: "✅ Onaylı",  sev: "",         ack: "1" },
+];
 
 export async function initSignals(el) {
   el.innerHTML = `
@@ -18,10 +26,7 @@ export async function initSignals(el) {
 
     <div class="filter-bar">
       <div class="filter-tabs">
-        <button class="filter-tab active" data-sev="">Tümü</button>
-        <button class="filter-tab critical" data-sev="critical">🔴 Kritik</button>
-        <button class="filter-tab warning"  data-sev="warning">🟡 Uyarı</button>
-        <button class="filter-tab info"     data-sev="info">🔵 Bilgi</button>
+        ${TABS.map((t, i) => `<button class="filter-tab${i === 0 ? " active" : ""}" data-idx="${i}">${t.label}</button>`).join("")}
       </div>
       <select class="filter-select" id="source-sel">
         <option value="">Tüm Kaynaklar</option>
@@ -38,10 +43,11 @@ export async function initSignals(el) {
               <th>Kaynak</th>
               <th>Önem</th>
               <th>Başlık</th>
+              <th style="width:36px"></th>
             </tr>
           </thead>
           <tbody id="signals-tbody">
-            <tr><td colspan="5"><div class="loading"><span class="spinner"></span></div></td></tr>
+            <tr><td colspan="6"><div class="loading"><span class="spinner"></span></div></td></tr>
           </tbody>
         </table>
         <div class="pagination" id="pagination"></div>
@@ -54,7 +60,9 @@ export async function initSignals(el) {
     tab.addEventListener("click", () => {
       el.querySelectorAll(".filter-tab").forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
-      activeFilter.severity = tab.dataset.sev;
+      const t = TABS[parseInt(tab.dataset.idx)];
+      activeFilter.severity = t.sev;
+      activeFilter.ack      = t.ack;
       currentOffset = 0;
       loadSignals(el);
     });
@@ -90,35 +98,56 @@ async function populateSources(el) {
 
 async function loadSignals(el) {
   const tbody = el.querySelector("#signals-tbody");
-  tbody.innerHTML = `<tr><td colspan="5"><div class="loading"><span class="spinner"></span></div></td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="6"><div class="loading"><span class="spinner"></span></div></td></tr>`;
 
   const params = { limit: PAGE_SIZE, offset: currentOffset };
   if (activeFilter.severity) params.severity = activeFilter.severity;
   if (activeFilter.source)   params.source   = activeFilter.source;
+  if (activeFilter.ack !== "") params.ack    = activeFilter.ack;
 
   try {
     const data = await api.getSignals(params);
     el.querySelector("#total-count").textContent = `${data.total} sinyal`;
 
     if (!data.rows?.length) {
-      tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">Sinyal yok</div></div></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">Sinyal yok</div></div></td></tr>`;
       el.querySelector("#pagination").innerHTML = "";
       return;
     }
 
     tbody.innerHTML = data.rows.map(s => buildRow(s)).join("");
     tbody.querySelectorAll("tr.clickable").forEach(row => {
-      row.addEventListener("click", () => toggleExpand(row));
+      row.addEventListener("click", e => {
+        if (e.target.closest(".ack-btn")) return;
+        toggleExpand(row, el);
+      });
+    });
+    tbody.querySelectorAll(".ack-btn").forEach(btn => {
+      btn.addEventListener("click", async e => {
+        e.stopPropagation();
+        const id = parseInt(btn.dataset.id);
+        try {
+          await api.ackSignal(id);
+          const row = btn.closest("tr");
+          row.classList.add("acked");
+          btn.remove();
+          toast("Sinyal onaylandı", "success");
+        } catch (err) {
+          toast(`Hata: ${err.message}`, "critical");
+        }
+      });
     });
 
     renderPagination(el, data.total);
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="5" style="color:var(--critical);padding:20px">Hata: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" style="color:var(--critical);padding:20px">Hata: ${e.message}</td></tr>`;
   }
 }
 
 function buildRow(s) {
-  return `<tr class="clickable"
+  const isAcked = s.ack === 1;
+  return `<tr class="clickable${isAcked ? " acked" : ""}"
+    data-id="${s.id}"
     data-body="${escAttr(s.body || "")}"
     data-raw="${escAttr(s.raw  || "")}">
     <td><span class="sev-dot ${s.severity}"></span></td>
@@ -126,12 +155,19 @@ function buildRow(s) {
     <td><span class="tag">${escHtml(s.source)}</span></td>
     <td><span class="sev-pill ${s.severity}">${sevIcon(s.severity)} ${s.severity}</span></td>
     <td>${escHtml(s.title)}</td>
+    <td>${isAcked
+      ? `<span class="ack-done" title="Onaylandı">✓</span>`
+      : `<button class="ack-btn" data-id="${s.id}" title="Onayla">✓</button>`
+    }</td>
   </tr>`;
 }
 
-function toggleExpand(row) {
+function toggleExpand(row, el) {
+  // Eski expand satırını kapat
   const next = row.nextElementSibling;
   if (next?.classList?.contains("expand-row")) { next.remove(); return; }
+  // Diğer açık expand satırlarını kapat
+  el.querySelectorAll(".expand-row").forEach(r => r.remove());
 
   const body = row.dataset.body || "";
   const raw  = row.dataset.raw  || "";
@@ -140,7 +176,7 @@ function toggleExpand(row) {
 
   const exp = document.createElement("tr");
   exp.className = "expand-row";
-  exp.innerHTML = `<td colspan="5"><div class="expand-content">
+  exp.innerHTML = `<td colspan="6"><div class="expand-content">
     ${body ? `<p style="font-size:13px;color:var(--text-1);margin-bottom:8px">${escHtml(body)}</p>` : ""}
     ${rawFmt ? `<pre class="raw-json">${escHtml(rawFmt)}</pre>` : ""}
     ${!body && !rawFmt ? `<p style="color:var(--text-3);font-size:12px">Detay yok</p>` : ""}
@@ -155,17 +191,33 @@ function prependLive(el, s) {
   tbody.querySelector(".empty-state")?.closest("tr")?.remove();
 
   const row = document.createElement("tr");
-  row.className  = "clickable new-signal";
-  row.dataset.body = s.body || "";
-  row.dataset.raw  = s.raw  || "";
+  row.className     = "clickable new-signal";
+  row.dataset.id    = s.id || "";
+  row.dataset.body  = s.body || "";
+  row.dataset.raw   = s.raw  || "";
   row.innerHTML = `
     <td><span class="sev-dot ${s.severity}"></span></td>
     <td style="font-family:var(--font-mono);font-size:12px;white-space:nowrap">${fmtTime(s.created_at || new Date().toISOString())}</td>
     <td><span class="tag">${escHtml(s.source)}</span></td>
     <td><span class="sev-pill ${s.severity}">${sevIcon(s.severity)} ${s.severity}</span></td>
     <td>${escHtml(s.title)}</td>
+    <td><button class="ack-btn" data-id="${s.id || ""}" title="Onayla">✓</button></td>
   `;
-  row.addEventListener("click", () => toggleExpand(row));
+  row.addEventListener("click", e => {
+    if (e.target.closest(".ack-btn")) return;
+    toggleExpand(row, el);
+  });
+  row.querySelector(".ack-btn")?.addEventListener("click", async e => {
+    e.stopPropagation();
+    const id = parseInt(e.currentTarget.dataset.id);
+    if (!id) return;
+    try {
+      await api.ackSignal(id);
+      row.classList.add("acked");
+      e.currentTarget.replaceWith(Object.assign(document.createElement("span"), { className: "ack-done", title: "Onaylandı", textContent: "✓" }));
+      toast("Sinyal onaylandı", "success");
+    } catch {}
+  });
   tbody.insertBefore(row, tbody.firstChild);
 }
 

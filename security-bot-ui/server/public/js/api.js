@@ -20,7 +20,7 @@ export const api = {
   me:             ()      => req("GET",  "/api/auth/me"),
   login:          (u, p)  => req("POST", "/api/auth/login", { username: u, password: p }),
   logout:         ()      => req("POST", "/api/auth/logout"),
-  changePassword: (c, n)  => req("POST", "/api/auth/change-password", { current: c, newPassword: n }),
+  changePassword: (c, n)  => req("POST", "/api/auth/change-password", { current: c, next: n }),
 
   // Dashboard
   dashboard:      ()      => req("GET",  "/api/dashboard"),
@@ -37,6 +37,13 @@ export const api = {
   botStatus:     ()  => req("GET",  "/api/bot/status"),
   triggerReport: ()  => req("POST", "/api/bot/trigger", {}),
   sources:       ()  => req("GET",  "/api/bot/sources"),
+
+  // Settings
+  getSettings:  ()    => req("GET",   "/api/settings"),
+  saveSettings: (obj) => req("PATCH", "/api/settings", obj),
+
+  // Signal actions
+  ackSignal: (id) => req("PATCH", `/api/signals/${id}/ack`, {}),
 };
 
 export function connectSSE(handlers) {

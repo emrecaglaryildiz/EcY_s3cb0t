@@ -45,12 +45,21 @@ logging.basicConfig(
 )
 log = logging.getLogger("ecy-s3cb0t")
 
-TOKEN    = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID  = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
-INTERVAL = int(os.getenv("CHECK_INTERVAL_MINUTES", "30"))
+TOKEN      = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID    = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
+INTERVAL   = int(os.getenv("CHECK_INTERVAL_MINUTES", "30"))
+BOT_SECRET = os.getenv("BOT_SECRET", "")
 
 # Web UI API adresi (aynı sunucuda çalışıyorsa)
-WEB_UI_API = os.getenv("WEB_UI_API", "http://localhost:5000")
+WEB_UI_API = os.getenv("WEB_UI_API", "http://localhost:3000")
+
+
+def _bot_headers() -> dict:
+    """Bot kimliğini kanıtlayan ortak HTTP başlıkları."""
+    h = {"Content-Type": "application/json"}
+    if BOT_SECRET:
+        h["X-Bot-Secret"] = BOT_SECRET
+    return h
 
 _app: Application | None = None
 _loop: asyncio.AbstractEventLoop | None = None
@@ -75,7 +84,7 @@ def push_report_to_ui(content: str, wazuh_data: dict, obs_data: dict, report_typ
             "obsAlerts":     alerts_obs.get("active_alerts", 0),
             "status":        "success",
         }
-        http_requests.post(f"{WEB_UI_API}/api/reports", json=payload, timeout=5)
+        http_requests.post(f"{WEB_UI_API}/api/reports", json=payload, headers=_bot_headers(), timeout=5)
     except Exception as e:
         log.warning("Web UI rapor push hatası: %s", e)
 
@@ -92,13 +101,42 @@ def log_telegram_message(content: str, message_type: str = "report",
             "status":        status,
             "triggerSource": trigger_source,
         }
-        http_requests.post(f"{WEB_UI_API}/api/telegram/messages", json=payload, timeout=5)
+        http_requests.post(f"{WEB_UI_API}/api/bot/telegram/messages", json=payload, headers=_bot_headers(), timeout=5)
     except Exception as e:
         log.warning("Telegram mesaj log hatası: %s", e)
 
 
+def _send_critical_alert(alert: dict):
+    """Kritik sinyal geldiğinde anında Telegram + Slack + Teams bildirimi gönderir."""
+    title  = alert.get("title", "Kritik Sinyal")
+    source = alert.get("source", "?")
+    body   = alert.get("body") or ""
+    msg    = f"🚨 *KRİTİK UYARI — {source}*\n\n{title}"
+    if body and body != title:
+        msg += f"\n\n{body[:400]}"
+    try:
+        if _app and _loop:
+            future = asyncio.run_coroutine_threadsafe(
+                _app.bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="Markdown"),
+                _loop,
+            )
+            future.result(timeout=10)
+    except Exception as e:
+        log.warning("Kritik alert Telegram gönderilemedi: %s", e)
+    try:
+        from slack_notifier import send_alert as _sl
+        _sl(title, body, "critical")
+    except Exception:
+        pass
+    try:
+        from teams_notifier import send_alert as _tm
+        _tm(title, body, "critical")
+    except Exception:
+        pass
+
+
 def send_heartbeat():
-    """Web UI'ye kaynak durumu ile birlikte heartbeat gönder; tetik varsa rapor üret."""
+    """Web UI'ye kaynak durumu ile birlikte heartbeat gönder; tetik/kritik alert varsa işle."""
     try:
         source_status = {
             "wazuh":        bool(os.getenv("WAZUH_HOST")),
@@ -117,14 +155,33 @@ def send_heartbeat():
         resp = http_requests.post(
             f"{WEB_UI_API}/api/bot/heartbeat",
             json={"source_status": source_status},
+            headers=_bot_headers(),
             timeout=3,
         )
         data = resp.json()
         if data.get("trigger"):
             log.info("UI tetiklemesi alındı — arka planda rapor üretiliyor…")
             threading.Thread(target=_scheduled_job, daemon=True).start()
+        if data.get("alert"):
+            log.info("Kritik sinyal uyarısı alındı — anlık bildirim gönderiliyor…")
+            threading.Thread(target=_send_critical_alert, args=(data["alert"],), daemon=True).start()
     except Exception:
         pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LLM yapılandırması (UI'dan çek)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def fetch_llm_config() -> dict | None:
+    """UI API'sinden LLM ayarlarını çeker; hata durumunda None döner (env fallback)."""
+    try:
+        resp = http_requests.get(f"{WEB_UI_API}/api/settings/llm", headers=_bot_headers(), timeout=3)
+        if resp.ok:
+            return resp.json()
+    except Exception:
+        pass
+    return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -170,8 +227,10 @@ def collect_all() -> dict:
 def build_report() -> tuple[str, dict]:
     """Rapor metni + ham veri döner."""
     log.info("Veri toplanıyor...")
-    data   = collect_all()
-    log.info("LLM analizi başlatılıyor (provider: %s)...", os.getenv("LLM_PROVIDER", "ollama"))
+    data       = collect_all()
+    llm_config = fetch_llm_config()
+    provider   = (llm_config or {}).get("llm_provider", os.getenv("LLM_PROVIDER", "ollama"))
+    log.info("LLM analizi başlatılıyor (provider: %s)...", provider)
     report = analyze_security_data(
         data["wazuh"],
         data["observium"],
@@ -181,6 +240,7 @@ def build_report() -> tuple[str, dict]:
         data.get("zabbix"),
         data.get("webhooks"),
         data.get("elastic"),
+        llm_config=llm_config,
     )
     ts = datetime.now().strftime("%d.%m.%Y %H:%M")
     return f"{report}\n\n⏱ _{ts} TSİ_", data
@@ -650,6 +710,46 @@ async def cmd_yardim(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await cmd_start(update, ctx)
 
 
+async def cmd_ozet(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """LLM kullanmadan anlık sayısal özet — hızlı durum kontrolü."""
+    if not _is_authorized(update):
+        return
+    await update.message.reply_text("🔄 Anlık durum çekiliyor…")
+    try:
+        loop = asyncio.get_running_loop()
+        wazuh_data, obs_data = await asyncio.gather(
+            loop.run_in_executor(None, get_recent_alerts),
+            loop.run_in_executor(None, get_dashboard_summary),
+        )
+        lines = [f"📊 *Hızlı Özet* — {datetime.now().strftime('%H:%M')}\n"]
+
+        # Wazuh
+        if "error" not in wazuh_data:
+            w_icon = "🔴" if wazuh_data.get("total_alerts", 0) > 20 else "🟡" if wazuh_data.get("total_alerts", 0) > 5 else "🟢"
+            lines.append(f"{w_icon} *Wazuh:* {wazuh_data.get('total_alerts', 0)} alert | "
+                         f"{wazuh_data.get('active_agents', 0)}/{wazuh_data.get('total_agents', 0)} agent aktif")
+            disc = wazuh_data.get("disconnected_agents", [])
+            if disc:
+                lines.append(f"  ⚠️ Kopuk: `{', '.join(disc[:5])}`")
+        else:
+            lines.append(f"🔴 *Wazuh:* bağlantı hatası")
+
+        # Observium
+        if "error" not in obs_data:
+            d_up   = obs_data.get("devices_up", obs_data.get("up_count", "?"))
+            d_down = obs_data.get("devices_down", obs_data.get("down_count", 0))
+            net_icon = "🔴" if (isinstance(d_down, int) and d_down > 0) else "🟢"
+            lines.append(f"{net_icon} *Observium:* {d_up} aktif / {d_down} çevrimdışı cihaz")
+        else:
+            lines.append(f"🔴 *Observium:* bağlantı hatası")
+
+        lines.append(f"\n_Tam analiz için_ /durum _komutunu kullanın_ ({INTERVAL} dk'da bir otomatik)_")
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    except Exception as e:
+        log.error("cmd_ozet hatası: %s", e)
+        await update.message.reply_text(f"❌ Hata: `{e}`", parse_mode="Markdown")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Zamanlanmış rapor
 # ─────────────────────────────────────────────────────────────────────────────
@@ -685,7 +785,10 @@ def _scheduler_thread():
     schedule.every(60).seconds.do(send_heartbeat)
     log.info("Zamanlayıcı başlatıldı: her %d dakikada rapor.", INTERVAL)
     while True:
-        schedule.run_pending()
+        try:
+            schedule.run_pending()
+        except Exception as e:
+            log.error("Zamanlayıcı hatası: %s", e)
         time.sleep(15)
 
 
@@ -749,6 +852,7 @@ def main():
     _app.add_handler(CommandHandler("prometheus_sondurum",  cmd_prometheus_sondurum))
     _app.add_handler(CommandHandler("zabbix_sondurum",      cmd_zabbix_sondurum))
     _app.add_handler(CommandHandler("webhook_sondurum",     cmd_webhook_sondurum))
+    _app.add_handler(CommandHandler("ozet",                 cmd_ozet))
     _app.add_handler(CommandHandler("yardim",               cmd_yardim))
 
     # BotFather menüsünü ayarla ve event loop'u yakala
@@ -763,6 +867,7 @@ def main():
             BotCommand("forti_sondurum",      "Fortinet FortiGate durumu"),
             BotCommand("prometheus_sondurum", "Prometheus/Alertmanager durumu"),
             BotCommand("zabbix_sondurum",     "Zabbix problem durumu"),
+            BotCommand("ozet",                "Hızlı sayısal özet (LLM yok)"),
             BotCommand("webhook_sondurum",    "Gelen webhook sinyalleri"),
             BotCommand("yardim",              "Yardım ve komut listesi"),
         ]

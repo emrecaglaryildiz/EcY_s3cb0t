@@ -18,21 +18,49 @@ load_dotenv()
 
 log = logging.getLogger("ecy-s3cb0t.llm")
 
-# ── Provider yapılandırması ────────────────────────────────────────────────────
+# ── Provider yapılandırması (env varsayılanları) ───────────────────────────────
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()
 
-# Ollama
 OLLAMA_HOST  = os.getenv("OLLAMA_HOST",  "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
 
-# Claude (Anthropic)
 CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY", os.getenv("ANTHROPIC_API_KEY", ""))
 CLAUDE_MODEL   = os.getenv("CLAUDE_MODEL", "claude-haiku-4-5-20251001")
 
-# OpenAI-compatible
 OPENAI_API_KEY  = os.getenv("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 OPENAI_MODEL    = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+
+def _get_system_prompt(config: dict | None) -> str:
+    """UI'dan özel prompt tanımlıysa onu kullan, yoksa varsayılanı döndür."""
+    custom = (config or {}).get("llm_system_prompt", "").strip()
+    return custom if custom else SYSTEM_PROMPT
+
+
+def _resolve_config(override: dict | None) -> dict:
+    """Env değerlerini UI ayarlarıyla birleştirir. UI değerleri önceliklidir."""
+    c        = override or {}
+    provider = c.get("llm_provider", LLM_PROVIDER).lower() or LLM_PROVIDER
+    model    = c.get("llm_model", "").strip()
+    base_url = c.get("llm_base_url", "").strip()
+    api_key  = c.get("llm_api_key", "").strip()
+    timeout  = int(c.get("llm_timeout", 60) or 60)
+    if provider == "claude":
+        return {"provider": "claude",
+                "model":   model  or CLAUDE_MODEL,
+                "api_key": api_key or CLAUDE_API_KEY,
+                "timeout": timeout}
+    if provider == "openai":
+        return {"provider": "openai",
+                "base_url": base_url or OPENAI_BASE_URL,
+                "model":    model    or OPENAI_MODEL,
+                "api_key":  api_key  or OPENAI_API_KEY,
+                "timeout":  timeout}
+    return {"provider": "ollama",
+            "host":    base_url or OLLAMA_HOST,
+            "model":   model    or OLLAMA_MODEL,
+            "timeout": timeout}
 
 GL_RANGE_DESC = f"{int(os.getenv('GRAYLOG_RANGE_SECONDS', '3600')) // 60} dk"
 
@@ -211,14 +239,14 @@ Yukarıdaki verileri analiz et ve Telegram'a gönderilecek bir durum raporu olu�
 
 # ── LLM provider'ları ─────────────────────────────────────────────────────────
 
-def _call_ollama(user_message: str) -> str:
+def _call_ollama(user_message: str, cfg: dict) -> str:
     import requests as _req
     r = _req.post(
-        f"{OLLAMA_HOST}/api/generate",
+        f"{cfg['host']}/api/generate",
         json={
-            "model":  OLLAMA_MODEL,
+            "model":  cfg["model"],
             "prompt": user_message,
-            "system": SYSTEM_PROMPT,
+            "system": _get_system_prompt(cfg),
             "stream": False,
             "options": {
                 "temperature":    0.3,
@@ -227,7 +255,7 @@ def _call_ollama(user_message: str) -> str:
                 "repeat_penalty": 1.1,
             },
         },
-        timeout=180,
+        timeout=cfg["timeout"],
     )
     r.raise_for_status()
     text = r.json().get("response", "").strip()
@@ -236,25 +264,25 @@ def _call_ollama(user_message: str) -> str:
     return text
 
 
-def _call_claude(user_message: str) -> str:
+def _call_claude(user_message: str, cfg: dict) -> str:
     import anthropic
-    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+    client = anthropic.Anthropic(api_key=cfg["api_key"])
     msg = client.messages.create(
-        model=CLAUDE_MODEL,
+        model=cfg["model"],
         max_tokens=1500,
-        system=SYSTEM_PROMPT,
+        system=_get_system_prompt(cfg),
         messages=[{"role": "user", "content": user_message}],
     )
     return msg.content[0].text.strip()
 
 
-def _call_openai(user_message: str) -> str:
+def _call_openai(user_message: str, cfg: dict) -> str:
     import openai
-    client = openai.OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
+    client = openai.OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
     resp = client.chat.completions.create(
-        model=OPENAI_MODEL,
+        model=cfg["model"],
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": _get_system_prompt(cfg)},
             {"role": "user",   "content": user_message},
         ],
         max_tokens=1500,
@@ -263,12 +291,12 @@ def _call_openai(user_message: str) -> str:
     return resp.choices[0].message.content.strip()
 
 
-def _call_llm(user_message: str) -> str:
-    if LLM_PROVIDER == "claude":
-        return _call_claude(user_message)
-    if LLM_PROVIDER == "openai":
-        return _call_openai(user_message)
-    return _call_ollama(user_message)
+def _call_llm(user_message: str, cfg: dict) -> str:
+    if cfg["provider"] == "claude":
+        return _call_claude(user_message, cfg)
+    if cfg["provider"] == "openai":
+        return _call_openai(user_message, cfg)
+    return _call_ollama(user_message, cfg)
 
 
 # ── Ana analiz fonksiyonu ─────────────────────────────────────────────────────
@@ -282,20 +310,24 @@ def analyze_security_data(
     zabbix_data: dict | None = None,
     webhook_data: dict | None = None,
     elastic_data: dict | None = None,
+    llm_config: dict | None = None,
 ) -> str:
-    """Ham verileri LLM'e gönderir, Türkçe analiz raporu döner."""
+    """Ham verileri LLM'e gönderir, Türkçe analiz raporu döner.
+
+    llm_config: UI'dan gelen ayarlar (llm_provider, llm_base_url, llm_model,
+                llm_api_key, llm_timeout). Verilmezse env değerleri kullanılır.
+    """
+    cfg          = _resolve_config(llm_config)
     user_message = _build_user_message(
         wazuh_data, observium_data, graylog_data,
         fortinet_data, prometheus_data, zabbix_data, webhook_data, elastic_data,
     )
 
-    provider_label = {"ollama": f"Ollama/{OLLAMA_MODEL}",
-                      "claude": f"Claude/{CLAUDE_MODEL}",
-                      "openai": f"OpenAI/{OPENAI_MODEL}"}.get(LLM_PROVIDER, LLM_PROVIDER)
+    provider_label = f"{cfg['provider']}/{cfg.get('model', cfg.get('host', '?'))}"
     log.info("LLM analizi başlatılıyor (provider: %s)...", provider_label)
 
     try:
-        return _call_llm(user_message)
+        return _call_llm(user_message, cfg)
     except TimeoutError:
         return (
             f"⚠️ *LLM zaman aşımı* ({provider_label}) — model yanıt vermedi.\n\n"

@@ -2,10 +2,11 @@
 const express = require("express");
 const db      = require("../db");
 const bus     = require("../emitter");
+const { requireSession, requireBotAuth } = require("../middleware");
 const router  = express.Router();
 
-// Sinyal kaydet
-router.post("/", (req, res) => {
+// Sinyal kaydet (bot/webhook tarafından kullanılır)
+router.post("/", requireBotAuth, (req, res) => {
   const { source, severity, title, body, raw } = req.body || {};
   if (!source || !title) return res.status(400).json({ error: "source ve title gerekli" });
 
@@ -21,11 +22,11 @@ router.post("/", (req, res) => {
   res.json({ ok: true, id: result.lastInsertRowid });
 });
 
-// Sinyal listesi — filtre + `since` tarih desteği
-router.get("/", (req, res) => {
+// Sinyal listesi — filtre + `since` tarih desteği (oturum gerektirir)
+router.get("/", requireSession, (req, res) => {
   const limit  = Math.min(parseInt(req.query.limit  || "100"), 500);
   const offset = parseInt(req.query.offset || "0");
-  const { severity, source, since, until } = req.query;
+  const { severity, source, since, until, ack } = req.query;
 
   let where  = "WHERE 1=1";
   const params = [];
@@ -33,14 +34,23 @@ router.get("/", (req, res) => {
   if (source)   { where += " AND source = ?";        params.push(source);   }
   if (since) { where += " AND created_at >= ?"; params.push(since.replace("T", " ")); }
   if (until) { where += " AND created_at <= ?"; params.push(until.replace("T", " ")); }
+  if (ack !== undefined) { where += " AND ack = ?";  params.push(parseInt(ack) || 0); }
 
   const rows  = db.prepare(`SELECT * FROM signals ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
   const total = db.prepare(`SELECT COUNT(*) as cnt FROM signals ${where}`).get(...params).cnt;
   res.json({ total, rows });
 });
 
-// Özet istatistikler
-router.get("/stats", (req, res) => {
+// Sinyal onayı (acknowledge) — oturum gerektirir
+router.patch("/:id/ack", requireSession, (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "Geçersiz id" });
+  db.prepare("UPDATE signals SET ack = 1 WHERE id = ?").run(id);
+  res.json({ ok: true });
+});
+
+// Özet istatistikler (oturum gerektirir)
+router.get("/stats", requireSession, (req, res) => {
   const sinceRaw   = req.query.since || new Date(Date.now() - 24 * 3600 * 1000).toISOString();
   const since      = sinceRaw.replace("T", " ");
   const bySeverity = db.prepare("SELECT severity, COUNT(*) as cnt FROM signals WHERE created_at >= ? GROUP BY severity").all(since);

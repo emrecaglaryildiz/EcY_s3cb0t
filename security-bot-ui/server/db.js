@@ -41,6 +41,7 @@ db.exec(`
     title      TEXT NOT NULL,
     body       TEXT,
     raw        TEXT,
+    ack        INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -66,11 +67,49 @@ db.exec(`
   INSERT OR IGNORE INTO bot_status (id, status) VALUES (1, 'unknown');
 `);
 
-// Mevcut bot_status tablosuna sütun ekle (migration)
+// Mevcut tablolara sütun ekle (migration)
 try { db.exec("ALTER TABLE bot_status ADD COLUMN pending_trigger INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE bot_status ADD COLUMN source_status TEXT");                } catch {}
+try { db.exec("ALTER TABLE bot_status ADD COLUMN pending_alert TEXT");                } catch {}
+try { db.exec("ALTER TABLE signals ADD COLUMN ack INTEGER DEFAULT 0");                } catch {}
 
-// İlk admin kullanıcı
+// ── LLM ayarları tablosu ──────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+  );
+`);
+const _ins = db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
+for (const [k, v] of [
+  ["llm_provider",     "ollama"],
+  ["llm_base_url",     "http://localhost:11434"],
+  ["llm_api_key",      ""],
+  ["llm_model",        "qwen2.5:3b"],
+  ["llm_timeout",      "60"],
+  ["llm_system_prompt",""],
+]) _ins.run(k, v);
+
+// ── İndeksler ─────────────────────────────────────────────────────────────────
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_signals_created_at ON signals (created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_signals_severity   ON signals (severity);
+  CREATE INDEX IF NOT EXISTS idx_signals_ack        ON signals (ack);
+  CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports (created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_telegram_created_at ON telegram_messages (created_at DESC);
+`);
+
+// ── Veri saklama sınırı (her gün temizlik) ───────────────────────────────────
+function _runRetention() {
+  db.prepare("DELETE FROM signals          WHERE created_at < datetime('now', '-90 days')").run();
+  db.prepare("DELETE FROM reports          WHERE created_at < datetime('now', '-180 days')").run();
+  db.prepare("DELETE FROM telegram_messages WHERE created_at < datetime('now', '-90 days')").run();
+}
+// İlk çalıştırmada ve sonra her 24 saatte bir
+_runRetention();
+setInterval(_runRetention, 24 * 60 * 60 * 1000);
+
+// ── İlk admin kullanıcı ───────────────────────────────────────────────────────
 const existing = db.prepare("SELECT id FROM users WHERE username = 'admin'").get();
 if (!existing) {
   const hash = bcrypt.hashSync("admin", 10);

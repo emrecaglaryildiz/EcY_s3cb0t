@@ -1,6 +1,7 @@
 "use strict";
 const express = require("express");
 const db      = require("../db");
+const bus     = require("../emitter");
 const router  = express.Router();
 
 const SECRET = process.env.WEBHOOK_UI_SECRET || "";
@@ -49,9 +50,21 @@ router.post(["/:source", "/"], (req, res) => {
   const severity = parseSeverity(payload);
   const title    = extractTitle(payload, source);
 
+  const body   = payload.description || payload.message || null;
+  const now    = new Date().toISOString();
   const result = db.prepare(
     "INSERT INTO signals (source, severity, title, body, raw) VALUES (?, ?, ?, ?, ?)"
-  ).run(source, severity, title, payload.description || payload.message || null, JSON.stringify(payload));
+  ).run(source, severity, title, body, JSON.stringify(payload));
+
+  const sigEvent = { id: result.lastInsertRowid, source, severity, title, body, created_at: now };
+  bus.emit("signal", sigEvent);
+
+  // Kritik sinyali bota ilet — bir sonraki heartbeat'te (≤60s) anlık bildirim gönderilir
+  if (severity === "critical") {
+    db.prepare("UPDATE bot_status SET pending_alert = ? WHERE id = 1").run(
+      JSON.stringify({ title, source, severity, body, id: result.lastInsertRowid })
+    );
+  }
 
   res.json({ ok: true, id: result.lastInsertRowid, severity, title });
 });

@@ -1,10 +1,11 @@
 "use strict";
 const express = require("express");
 const bus     = require("../emitter");
+const { requireSession } = require("../middleware");
 const router  = express.Router();
 
-// SSE — canlı event akışı
-router.get("/", (req, res) => {
+// SSE — canlı event akışı (oturum gerektirir)
+router.get("/", requireSession, (req, res) => {
   res.setHeader("Content-Type",        "text/event-stream");
   res.setHeader("Cache-Control",       "no-cache");
   res.setHeader("Connection",          "keep-alive");

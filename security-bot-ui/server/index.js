@@ -6,12 +6,22 @@ const morgan         = require("morgan");
 const path           = require("path");
 
 const db             = require("./db");
+const { requireSession, requireBotAuth } = require("./middleware");
 const authRoutes     = require("./routes/auth");
 const reportsRoutes  = require("./routes/reports");
 const signalsRoutes  = require("./routes/signals");
 const botRoutes      = require("./routes/bot");
 const webhookRoutes  = require("./routes/webhook");
 const eventsRoute    = require("./routes/events");
+const settingsRoutes = require("./routes/settings");
+
+// ── Başlangıç doğrulaması ─────────────────────────────────────────────────────
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET || SESSION_SECRET === "change-me-in-production") {
+  console.error("[FATAL] SESSION_SECRET tanımlı değil veya varsayılan değerde!");
+  console.error("        openssl rand -hex 32  komutuyla güçlü bir değer üretin.");
+  process.exit(1);
+}
 
 const app  = express();
 const PORT = parseInt(process.env.PORT || "3000");
@@ -24,7 +34,7 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc:  ["'self'"],
-      scriptSrc:   ["'self'", "'unsafe-inline'", "cdn.jsdelivr.net"],
+      scriptSrc:   ["'self'", "cdn.jsdelivr.net"],          // 'unsafe-inline' kaldırıldı
       styleSrc:    ["'self'", "'unsafe-inline'", "fonts.googleapis.com"],
       fontSrc:     ["'self'", "fonts.gstatic.com"],
       imgSrc:      ["'self'", "data:"],
@@ -37,7 +47,7 @@ app.use(express.json({ limit: "2mb" }));
 
 // ── Session ───────────────────────────────────────────────────────────────────
 app.use(session({
-  secret:            process.env.SESSION_SECRET || "change-me-in-production",
+  secret:            SESSION_SECRET,
   resave:            false,
   saveUninitialized: false,
   cookie: {
@@ -52,15 +62,12 @@ app.use("/api/auth",    authRoutes);
 app.use("/api/reports", reportsRoutes);
 app.use("/api/signals", signalsRoutes);
 app.use("/api/bot",     botRoutes);
-app.use("/api/telegram/messages", (req, res, next) => {
-  req.url = "/telegram/messages";
-  botRoutes(req, res, next);
-});
 app.use("/api/webhook", webhookRoutes);
-app.use("/api/events",  eventsRoute);
+app.use("/api/events",   eventsRoute);
+app.use("/api/settings", settingsRoutes);
 
-// ── Dashboard özeti ───────────────────────────────────────────────────────────
-app.get("/api/dashboard", (req, res) => {
+// ── Dashboard özeti (oturum gerektirir) ───────────────────────────────────────
+app.get("/api/dashboard", requireSession, (req, res) => {
   const last24h      = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
   const reportCount  = db.prepare("SELECT COUNT(*) as cnt FROM reports WHERE created_at >= ?").get(last24h).cnt;
   const signalCounts = db.prepare(

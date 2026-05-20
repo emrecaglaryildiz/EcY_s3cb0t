@@ -82,6 +82,31 @@ def _extract_title(payload: dict, source: str) -> str:
     return f"{source} webhook"
 
 
+# ── UI sinyali push ───────────────────────────────────────────────────────────
+
+def _push_to_ui(entry: dict):
+    """Webhook'u Node.js UI'ye gönderir — sinyal listesinde görünmesi ve SSE için."""
+    try:
+        import requests as _req
+        web_ui    = os.getenv("WEB_UI_API", "http://localhost:3000")
+        bot_secret = os.getenv("BOT_SECRET", "")
+        headers   = {"X-Bot-Secret": bot_secret} if bot_secret else {}
+        _req.post(
+            f"{web_ui}/api/signals",
+            json={
+                "source":   entry["source"],
+                "severity": entry["severity"],
+                "title":    entry["title"],
+                "body":     entry.get("title"),
+                "raw":      entry.get("raw"),
+            },
+            headers=headers,
+            timeout=3,
+        )
+    except Exception:
+        pass
+
+
 # ── Flask rotaları ─────────────────────────────────────────────────────────────
 
 @app.route("/webhook", methods=["POST"])
@@ -107,6 +132,9 @@ def receive_webhook(source: str = "generic"):
 
     with _store_lock:
         _store.append(entry)
+
+    # UI API'sine arka planda gönder — webhook yanıtını bloke etmeden
+    threading.Thread(target=_push_to_ui, args=(entry,), daemon=True).start()
 
     log.info("Webhook alındı: source=%s severity=%s title=%s",
              source, entry["severity"], entry["title"])
