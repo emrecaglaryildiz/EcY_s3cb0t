@@ -90,7 +90,26 @@ for (const [k, v] of [
   ["llm_system_prompt",""],
 ]) _ins.run(k, v);
 
-// İlk admin kullanıcı
+// ── İndeksler ─────────────────────────────────────────────────────────────────
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_signals_created_at ON signals (created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_signals_severity   ON signals (severity);
+  CREATE INDEX IF NOT EXISTS idx_signals_ack        ON signals (ack);
+  CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports (created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_telegram_created_at ON telegram_messages (created_at DESC);
+`);
+
+// ── Veri saklama sınırı (her gün temizlik) ───────────────────────────────────
+function _runRetention() {
+  db.prepare("DELETE FROM signals          WHERE created_at < datetime('now', '-90 days')").run();
+  db.prepare("DELETE FROM reports          WHERE created_at < datetime('now', '-180 days')").run();
+  db.prepare("DELETE FROM telegram_messages WHERE created_at < datetime('now', '-90 days')").run();
+}
+// İlk çalıştırmada ve sonra her 24 saatte bir
+_runRetention();
+setInterval(_runRetention, 24 * 60 * 60 * 1000);
+
+// ── İlk admin kullanıcı ───────────────────────────────────────────────────────
 const existing = db.prepare("SELECT id FROM users WHERE username = 'admin'").get();
 if (!existing) {
   const hash = bcrypt.hashSync("admin", 10);

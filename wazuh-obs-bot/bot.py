@@ -45,12 +45,21 @@ logging.basicConfig(
 )
 log = logging.getLogger("ecy-s3cb0t")
 
-TOKEN    = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID  = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
-INTERVAL = int(os.getenv("CHECK_INTERVAL_MINUTES", "30"))
+TOKEN      = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID    = int(os.getenv("TELEGRAM_CHAT_ID", "0"))
+INTERVAL   = int(os.getenv("CHECK_INTERVAL_MINUTES", "30"))
+BOT_SECRET = os.getenv("BOT_SECRET", "")
 
 # Web UI API adresi (aynı sunucuda çalışıyorsa)
 WEB_UI_API = os.getenv("WEB_UI_API", "http://localhost:3000")
+
+
+def _bot_headers() -> dict:
+    """Bot kimliğini kanıtlayan ortak HTTP başlıkları."""
+    h = {"Content-Type": "application/json"}
+    if BOT_SECRET:
+        h["X-Bot-Secret"] = BOT_SECRET
+    return h
 
 _app: Application | None = None
 _loop: asyncio.AbstractEventLoop | None = None
@@ -75,7 +84,7 @@ def push_report_to_ui(content: str, wazuh_data: dict, obs_data: dict, report_typ
             "obsAlerts":     alerts_obs.get("active_alerts", 0),
             "status":        "success",
         }
-        http_requests.post(f"{WEB_UI_API}/api/reports", json=payload, timeout=5)
+        http_requests.post(f"{WEB_UI_API}/api/reports", json=payload, headers=_bot_headers(), timeout=5)
     except Exception as e:
         log.warning("Web UI rapor push hatası: %s", e)
 
@@ -92,7 +101,7 @@ def log_telegram_message(content: str, message_type: str = "report",
             "status":        status,
             "triggerSource": trigger_source,
         }
-        http_requests.post(f"{WEB_UI_API}/api/bot/telegram/messages", json=payload, timeout=5)
+        http_requests.post(f"{WEB_UI_API}/api/bot/telegram/messages", json=payload, headers=_bot_headers(), timeout=5)
     except Exception as e:
         log.warning("Telegram mesaj log hatası: %s", e)
 
@@ -146,6 +155,7 @@ def send_heartbeat():
         resp = http_requests.post(
             f"{WEB_UI_API}/api/bot/heartbeat",
             json={"source_status": source_status},
+            headers=_bot_headers(),
             timeout=3,
         )
         data = resp.json()
@@ -166,7 +176,7 @@ def send_heartbeat():
 def fetch_llm_config() -> dict | None:
     """UI API'sinden LLM ayarlarını çeker; hata durumunda None döner (env fallback)."""
     try:
-        resp = http_requests.get(f"{WEB_UI_API}/api/settings/llm", timeout=3)
+        resp = http_requests.get(f"{WEB_UI_API}/api/settings/llm", headers=_bot_headers(), timeout=3)
         if resp.ok:
             return resp.json()
     except Exception:
@@ -775,7 +785,10 @@ def _scheduler_thread():
     schedule.every(60).seconds.do(send_heartbeat)
     log.info("Zamanlayıcı başlatıldı: her %d dakikada rapor.", INTERVAL)
     while True:
-        schedule.run_pending()
+        try:
+            schedule.run_pending()
+        except Exception as e:
+            log.error("Zamanlayıcı hatası: %s", e)
         time.sleep(15)
 
 

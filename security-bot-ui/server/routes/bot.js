@@ -2,10 +2,11 @@
 const express = require("express");
 const db      = require("../db");
 const bus     = require("../emitter");
+const { requireSession, requireBotAuth } = require("../middleware");
 const router  = express.Router();
 
-// Bot heartbeat — kaynak durumu ile birlikte
-router.post("/heartbeat", (req, res) => {
+// Bot heartbeat — kaynak durumu ile birlikte (bot auth)
+router.post("/heartbeat", requireBotAuth, (req, res) => {
   const { source_status } = req.body || {};
 
   db.prepare(`
@@ -28,8 +29,8 @@ router.post("/heartbeat", (req, res) => {
   res.json({ ok: true, trigger, alert });
 });
 
-// Bot durumu
-router.get("/status", (req, res) => {
+// Bot durumu (oturum gerektirir)
+router.get("/status", requireSession, (req, res) => {
   const row = db.prepare("SELECT * FROM bot_status WHERE id = 1").get();
   if (!row) return res.json({ status: "unknown" });
   const lastSeen = row.last_seen ? new Date(row.last_seen + "Z") : null;
@@ -37,22 +38,22 @@ router.get("/status", (req, res) => {
   res.json({ status: online ? "online" : "offline", last_seen: row.last_seen });
 });
 
-// UI'dan rapor tetikle
-router.post("/trigger", (req, res) => {
+// UI'dan rapor tetikle (oturum gerektirir)
+router.post("/trigger", requireSession, (req, res) => {
   db.prepare("UPDATE bot_status SET pending_trigger = 1 WHERE id = 1").run();
   res.json({ ok: true, message: "Trigger ayarlandı — bot bir sonraki heartbeat'te çalıştıracak" });
 });
 
-// Kaynak durumları (son heartbeat'ten)
-router.get("/sources", (req, res) => {
+// Kaynak durumları (oturum gerektirir)
+router.get("/sources", requireSession, (req, res) => {
   const row = db.prepare("SELECT source_status FROM bot_status WHERE id = 1").get();
   let sources = {};
   try { sources = JSON.parse(row?.source_status || "{}"); } catch {}
   res.json({ sources });
 });
 
-// Telegram mesaj kaydet
-router.post("/telegram/messages", (req, res) => {
+// Telegram mesaj kaydet (bot auth)
+router.post("/telegram/messages", requireBotAuth, (req, res) => {
   const { direction, chatId, messageType, content, status, triggerSource } = req.body || {};
   if (!content) return res.status(400).json({ error: "content gerekli" });
   db.prepare(`
