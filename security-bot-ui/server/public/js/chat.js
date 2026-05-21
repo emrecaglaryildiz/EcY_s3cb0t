@@ -4,6 +4,42 @@ import { escHtml, fmtTime } from "./app.js";
 
 let _history = [];   // {role, content} — LLM context için
 
+// ── Markdown renderer ─────────────────────────────────────────────
+if (typeof marked !== "undefined") {
+  // Custom renderer: code blocks → hljs highlighted
+  const renderer = new marked.Renderer();
+  renderer.code = function({ text, lang }) {
+    const language = lang && typeof hljs !== "undefined" && hljs.getLanguage(lang) ? lang : null;
+    try {
+      const highlighted = language
+        ? hljs.highlight(text, { language }).value
+        : (typeof hljs !== "undefined" ? hljs.highlightAuto(text).value : escHtml(text));
+      const cls = language ? ` class="language-${language}"` : "";
+      return `<pre><code class="hljs${cls}">${highlighted}</code></pre>`;
+    } catch {
+      return `<pre><code class="hljs">${escHtml(text)}</code></pre>`;
+    }
+  };
+  marked.use({ renderer, gfm: true, breaks: true, pedantic: false });
+}
+
+function renderMarkdown(content) {
+  if (typeof marked === "undefined") return escHtml(content);
+  const raw = marked.parse(content);
+  if (typeof DOMPurify === "undefined") return raw;
+  return DOMPurify.sanitize(raw, {
+    ALLOWED_TAGS: [
+      "p","br","strong","em","b","i","u","s","del",
+      "h1","h2","h3","h4","h5","h6",
+      "ul","ol","li","blockquote","hr",
+      "pre","code","table","thead","tbody","tr","th","td",
+      "a","span","div",
+    ],
+    ALLOWED_ATTR: ["href","class","target","rel"],
+    FORCE_BODY: false,
+  });
+}
+
 export async function initChat(el) {
   el.innerHTML = `
     <div class="chat-layout">
@@ -79,9 +115,8 @@ function appendBubble(el, role, content, ts, scroll = true) {
   const div = document.createElement("div");
   div.className = `chat-bubble ${role}`;
 
-  const isMarkdown = role === "assistant" && typeof marked !== "undefined";
-  const bodyHtml = isMarkdown
-    ? `<div class="chat-bubble-content md">${marked.parse(content)}</div>`
+  const bodyHtml = role === "assistant"
+    ? `<div class="chat-bubble-content md">${renderMarkdown(content)}</div>`
     : `<div class="chat-bubble-content">${escHtml(content)}</div>`;
 
   const timeStr = ts ? fmtTime(ts) : "";
@@ -111,6 +146,14 @@ function appendBubble(el, role, content, ts, scroll = true) {
   });
 
   wrap.appendChild(div);
+
+  // Highlight any code blocks not already processed by the renderer
+  if (role === "assistant" && typeof hljs !== "undefined") {
+    div.querySelectorAll("pre code:not(.hljs)").forEach(block => {
+      hljs.highlightElement(block);
+    });
+  }
+
   if (scroll) scrollToBottom(el);
 }
 
