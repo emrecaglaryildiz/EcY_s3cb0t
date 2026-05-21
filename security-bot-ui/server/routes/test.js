@@ -1,9 +1,43 @@
 "use strict";
 const express        = require("express");
 const net            = require("net");
+const https          = require("node:https");
+const http           = require("node:http");
 const db             = require("../db");
 const { requireSession } = require("../middleware");
 const router         = express.Router();
+
+// fetch() rejects self-signed certs; use Node's https/http directly
+function rawReq(url, { method = "GET", headers = {}, body, verifySSL = true } = {}, ms = 12000) {
+  return new Promise((resolve, reject) => {
+    const u   = new URL(url);
+    const lib = u.protocol === "https:" ? https : http;
+    let   req;
+    const timer = setTimeout(() => req?.destroy(new Error("Bağlantı zaman aşımı")), ms);
+    req = lib.request({
+      hostname:           u.hostname,
+      port:               u.port || (u.protocol === "https:" ? 443 : 80),
+      path:               u.pathname + (u.search || ""),
+      method, headers,
+      rejectUnauthorized: verifySSL,
+    }, res => {
+      let data = "";
+      res.on("data", c => data += c);
+      res.on("end", () => {
+        clearTimeout(timer);
+        resolve({
+          status: res.statusCode,
+          ok:     res.statusCode >= 200 && res.statusCode < 400,
+          json:   () => { try { return JSON.parse(data); } catch { throw new Error("JSON parse hatası"); } },
+          text:   () => data,
+        });
+      });
+    });
+    req.on("error", e => { clearTimeout(timer); reject(e); });
+    if (body) req.write(body);
+    req.end();
+  });
+}
 
 function cfg(prefix) {
   const rows = db.prepare(
@@ -64,64 +98,111 @@ async function testLLM() {
 }
 
 async function testWazuh() {
-  const s    = cfg("wazuh");
+  const s       = cfg("wazuh");
+  const backend = s.wazuh_backend || "elasticsearch";
+  const verifySSL = (s.wazuh_verify_ssl || "0") === "1";
+
+  if (backend === "elasticsearch") {
+    const host = (s.wazuh_es_host || s.wazuh_host || "").replace(/\/$/, "");
+    const user = s.wazuh_es_user || s.wazuh_user || "";
+    const pass = s.wazuh_es_pass || s.wazuh_pass || "";
+    if (!host) throw new Error("Elasticsearch host tanımlı değil (wazuh_es_host)");
+    const creds = Buffer.from(`${user}:${pass}`).toString("base64");
+    const r = await rawReq(`${host}/_cluster/health`, {
+      headers: { Authorization: `Basic ${creds}` },
+      verifySSL,
+    });
+    if (!r.ok) {
+      let msg = `HTTP ${r.status}`;
+      try { const d = r.json(); msg = d.error?.reason || d.error?.type || msg; } catch {}
+      throw new Error(`ES bağlantısı başarısız: ${msg}`);
+    }
+    const data = r.json();
+    // Count indices as a sanity check
+    const idxRes = await rawReq(`${host}/wazuh-alerts-*/_count`, {
+      headers: { Authorization: `Basic ${creds}` },
+      verifySSL,
+    }).catch(() => null);
+    const docCount = idxRes?.ok ? (idxRes.json()?.count ?? "?") : "erişilemiyor";
+    return {
+      ok: true,
+      preview: [
+        `Elasticsearch bağlandı ✓`,
+        `Host: ${host}`,
+        `Cluster: ${data.cluster_name || "?"} — ${data.status || "?"}`,
+        `Node: ${data.number_of_nodes ?? "?"}`,
+        `wazuh-alerts-* belge sayısı: ${docCount}`,
+      ].join("\n"),
+    };
+  }
+
+  // REST API fallback
   const host = (s.wazuh_host || "").replace(/\/$/, "");
-  if (!host) throw new Error("Wazuh host tanımlı değil");
+  if (!host) throw new Error("Wazuh REST host tanımlı değil");
   const creds = Buffer.from(`${s.wazuh_user || "wazuh"}:${s.wazuh_pass || ""}`).toString("base64");
-  const r     = await ft(`${host}/security/user/authenticate`, {
+  const r = await rawReq(`${host}/security/user/authenticate`, {
     headers: { Authorization: `Basic ${creds}` },
+    verifySSL,
   });
-  if (!r.ok) throw new Error(`Wazuh auth başarısız: HTTP ${r.status}`);
-  const data = await r.json();
+  if (!r.ok) throw new Error(`Wazuh REST auth başarısız: HTTP ${r.status}`);
+  const data = r.json();
   if (!data?.data?.token) throw new Error("Token alınamadı");
-  return { ok: true, preview: `Wazuh bağlantısı başarılı\nHost: ${host}\nToken alındı (geçerli kimlik bilgileri)` };
+  return { ok: true, preview: `Wazuh REST bağlantısı başarılı\nHost: ${host}\nToken alındı` };
 }
 
 async function testObservium() {
-  const s    = cfg("obs");
-  const host = (s.obs_host || "").replace(/\/$/, "");
-  const user = s.obs_user || "admin";
-  const pass = s.obs_pass || "";
+  const s       = cfg("obs");
+  const host    = (s.obs_host || "").replace(/\/$/, "");
+  const user    = s.obs_user || "admin";
+  const pass    = s.obs_pass || "";
+  const backend = s.obs_backend || "selenium";
   if (!host) throw new Error("Observium host tanımlı değil");
 
-  // 1) Erişilebilirlik + CSRF token
+  // Erişilebilirlik kontrolü (her iki backend için)
   const homeRes  = await ft(`${host}/`, {}, 10000);
-  if (!homeRes.ok && homeRes.status !== 302)
+  if (!homeRes.ok && homeRes.status !== 302 && homeRes.status !== 301)
     throw new Error(`Sunucuya ulaşılamıyor: HTTP ${homeRes.status}`);
   const homeHtml = await homeRes.text().catch(() => "");
+  const hasLoginForm = /name=["']username["']|name=["']password["']/i.test(homeHtml);
 
-  // Hidden input'ları topla (CSRF vb.)
+  // Selenium backend: sadece bağlantı doğrulaması (auth bota bırakılır)
+  if (backend === "selenium") {
+    return {
+      ok: true,
+      preview: [
+        `Observium sunucusuna ulaşıldı ✓`,
+        `Host: ${host}`,
+        hasLoginForm ? `Giriş sayfası bulundu (form hazır)` : `Sayfa erişilebilir`,
+        ``,
+        `Backend: Selenium — kimlik doğrulaması bot konteyneri tarafından yapılır.`,
+        `Gerçek bağlantı için "Rapor Üret" butonunu deneyin.`,
+      ].join("\n"),
+    };
+  }
+
+  // requests backend: gerçek login dene
   const hidden = {};
   for (const m of homeHtml.matchAll(/<input[^>]+type=["']hidden["'][^>]*>/gi)) {
     const nm = m[0].match(/name=["']([^"']+)["']/);
     const vm = m[0].match(/value=["']([^"']*)["']/);
     if (nm) hidden[nm[1]] = vm ? vm[1] : "";
   }
-
-  // 2) Login POST
   const body = new URLSearchParams({ username: user, password: pass, ...hidden });
   const loginRes  = await ft(`${host}/login/`, {
-    method:  "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body:    body.toString(),
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
   }, 12000);
   const loginText = await loginRes.text().catch(() => "");
-
   if (/incorrect|wrong.*password|invalid.*credential/i.test(loginText))
     throw new Error("Kullanıcı adı veya şifre hatalı");
   if (/\/login\//i.test(loginRes.url || "") && !/dashboard/i.test(loginText))
     throw new Error("Giriş başarısız — kimlik bilgilerini kontrol edin");
-
-  // 3) Cihaz/port sayısını çek (özet)
   const devMatch = loginText.match(/(\d+)\s*(?:devices?|cihaz)/i);
-  const preview  = [
-    `Observium giriş başarılı ✓`,
-    `Host: ${host}`,
-    `Kullanıcı: ${user}`,
-    devMatch ? `Cihaz: ${devMatch[1]}` : "",
-  ].filter(Boolean).join("\n");
-
-  return { ok: true, preview };
+  return {
+    ok: true,
+    preview: [`Observium giriş başarılı ✓`, `Host: ${host}`, `Kullanıcı: ${user}`,
+              devMatch ? `Cihaz: ${devMatch[1]}` : ""].filter(Boolean).join("\n"),
+  };
 }
 
 async function testTelegram() {

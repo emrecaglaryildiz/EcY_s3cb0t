@@ -66,16 +66,25 @@ def get_summary(config: dict = None) -> dict:
         except Exception as e:
             log.warning("Alert Status tablosu bulunamadı: %s", e)
 
-        # Device summary (simple)
+        # Device summary — look for the Devices row in the overview table
         devices_up = 0
         devices_down = 0
         try:
-            summary_text = driver.find_element(By.TAG_NAME, "body").text
             import re
-            m = re.search(r"(\d+)\s*up", summary_text, re.I)
-            if m: devices_up = int(m.group(1))
-            m2 = re.search(r"(\d+)\s*down", summary_text, re.I)
-            if m2: devices_down = int(m2.group(1))
+            # Try the summary table: Devices | <total> | <up> | <alert/down>
+            tables = driver.find_elements(By.TAG_NAME, "table")
+            for tbl in tables:
+                text = tbl.text
+                if "Devices" in text and "Ports" in text:
+                    rows = tbl.find_elements(By.TAG_NAME, "tr")
+                    for row in rows:
+                        cols = row.find_elements(By.TAG_NAME, "td")
+                        if cols and "device" in cols[0].text.lower():
+                            nums = re.findall(r"\d+", row.text)
+                            if len(nums) >= 2:
+                                devices_up   = int(nums[1])   # Up column
+                                devices_down = int(nums[2]) if len(nums) > 2 else 0
+                    break
         except Exception:
             pass
 

@@ -81,9 +81,10 @@ try { db.exec("ALTER TABLE bot_status ADD COLUMN pending_alert TEXT");          
 try { db.exec("ALTER TABLE bot_status ADD COLUMN pending_telegram TEXT");             } catch {}
 try { db.exec("ALTER TABLE signals ADD COLUMN ack INTEGER DEFAULT 0");                } catch {}
 // Migrate old host.docker.internal default to fixed subnet gateway
-try {
-  db.exec("UPDATE settings SET value='http://172.28.0.1:11434' WHERE key='llm_base_url' AND value='http://host.docker.internal:11434'");
-} catch {}
+try { db.exec("UPDATE settings SET value='http://172.28.0.1:11434' WHERE key='llm_base_url' AND value='http://host.docker.internal:11434'"); } catch {}
+// Migrate old backend defaults
+try { db.exec("UPDATE settings SET value='elasticsearch' WHERE key='wazuh_backend' AND value='api'"); } catch {}
+try { db.exec("UPDATE settings SET value='selenium'      WHERE key='obs_backend'   AND value='requests'"); } catch {}
 
 // ── LLM ayarları tablosu ──────────────────────────────────────────────────────
 db.exec(`
@@ -106,7 +107,7 @@ for (const [k, v] of [
   ["wazuh_pass",        ""],
   ["wazuh_alert_level", "7"],
   ["wazuh_verify_ssl",  "0"],
-  ["wazuh_backend",     "api"],
+  ["wazuh_backend",     "elasticsearch"],
   ["wazuh_es_host",     ""],
   ["wazuh_es_user",     ""],
   ["wazuh_es_pass",     ""],
@@ -114,7 +115,7 @@ for (const [k, v] of [
   ["obs_host",          "http://observium"],
   ["obs_user",          "admin"],
   ["obs_pass",          ""],
-  ["obs_backend",       "requests"],
+  ["obs_backend",       "selenium"],
   // Telegram
   ["telegram_token",    ""],
   ["telegram_chat_id",  ""],
