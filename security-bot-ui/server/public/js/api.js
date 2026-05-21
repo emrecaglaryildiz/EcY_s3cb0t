@@ -26,8 +26,9 @@ export const api = {
   dashboard:      ()      => req("GET",  "/api/dashboard"),
 
   // Signals
-  getSignals:  (p = {}) => req("GET", `/api/signals?${new URLSearchParams(p)}`),
-  signalStats: (since)  => req("GET", `/api/signals/stats${since ? `?since=${since}` : ""}`),
+  getSignals:    (p = {}) => req("GET", `/api/signals?${new URLSearchParams(p)}`),
+  signalStats:   (since)  => req("GET", `/api/signals/stats${since ? `?since=${since}` : ""}`),
+  signalSources: ()       => req("GET", "/api/signals/sources"),
 
   // Reports
   getReports:   (p = {}) => req("GET", `/api/reports?${new URLSearchParams(p)}`),

@@ -20,7 +20,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from telegram import Update, BotCommand
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 from wazuh_collector      import get_recent_alerts
 from observium_collector  import get_device_status, get_alerts, get_port_errors, get_summary as obs_get_summary, get_dashboard_summary
@@ -772,6 +772,30 @@ async def cmd_yardim(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await cmd_start(update, ctx)
 
 
+async def handle_incoming_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Komut olmayan gelen Telegram mesajlarını Web UI'ye kaydeder."""
+    if not _is_authorized(update):
+        return
+    text = (update.message.text or "").strip()
+    if not text:
+        return
+    try:
+        payload = {
+            "direction":     "in",
+            "chatId":        str(update.message.chat_id),
+            "messageType":   "chat",
+            "content":       text,
+            "status":        "received",
+            "triggerSource": "telegram",
+        }
+        http_requests.post(
+            f"{WEB_UI_API}/api/bot/telegram/messages",
+            json=payload, headers=_bot_headers(), timeout=5,
+        )
+    except Exception as e:
+        log.debug("Gelen mesaj log hatası: %s", e)
+
+
 async def cmd_ozet(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """LLM kullanmadan anlık sayısal özet — hızlı durum kontrolü."""
     if not _is_authorized(update):
@@ -920,6 +944,7 @@ def main():
     _app.add_handler(CommandHandler("webhook_sondurum",     cmd_webhook_sondurum))
     _app.add_handler(CommandHandler("ozet",                 cmd_ozet))
     _app.add_handler(CommandHandler("yardim",               cmd_yardim))
+    _app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_incoming_message))
 
     # BotFather menüsünü ayarla ve event loop'u yakala
     async def _post_init(application: Application):

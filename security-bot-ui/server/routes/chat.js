@@ -100,6 +100,10 @@ router.post("/send-telegram", requireSession, (req, res) => {
   const { content } = req.body || {};
   if (!content) return res.status(400).json({ error: "content gerekli" });
   db.prepare("UPDATE bot_status SET pending_telegram = ? WHERE id = 1").run(content);
+  // Hemen telegram_messages'a kaydet (bot offline olsa bile görünsün)
+  db.prepare(
+    "INSERT INTO telegram_messages (direction, message_type, content, status, trigger_source) VALUES (?, ?, ?, ?, ?)"
+  ).run("out", "chat", content, "queued", "ui");
   res.json({ ok: true, message: "Mesaj kuyruğa alındı — bot sonraki heartbeat'te gönderecek" });
 });
 

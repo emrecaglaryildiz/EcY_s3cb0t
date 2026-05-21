@@ -4,6 +4,19 @@ import { relTime, fmtTime, escHtml, toast } from "./app.js";
 
 let trendChart      = null;
 let refreshTimer    = null;
+let activeSource    = "";   // "" = tümü
+
+// Kaynak → renk/ikon eşleştirmesi
+const SOURCE_META = {
+  wazuh:      { icon: "🛡",  color: "var(--critical)" },
+  observium:  { icon: "📡", color: "var(--info)" },
+  fortinet:   { icon: "🔥", color: "var(--warning)" },
+  graylog:    { icon: "📋", color: "var(--accent)" },
+  prometheus: { icon: "📊", color: "var(--warning)" },
+  zabbix:     { icon: "📈", color: "var(--success)" },
+  elastic:    { icon: "🔍", color: "var(--accent)" },
+  webhook:    { icon: "🔗", color: "var(--text-2)" },
+};
 
 export async function initDashboard(el) {
   el.innerHTML = `
@@ -42,7 +55,9 @@ export async function initDashboard(el) {
       <div class="card">
         <div class="card-header">
           <span class="card-title">⚡ Canlı Sinyal Akışı</span>
-          <span class="tag" style="color:var(--success)">● Canlı</span>
+          <div class="source-chips" id="source-chips">
+            <button class="source-chip active" data-src="">Tümü</button>
+          </div>
         </div>
         <div class="card-body">
           <div class="signal-feed" id="signal-feed">
@@ -104,14 +119,16 @@ export async function initDashboard(el) {
     window.removeEventListener("sse:report", onReport);
     clearInterval(refreshTimer);
     if (trendChart) { trendChart.destroy(); trendChart = null; }
+    activeSource = "";
   };
 }
 
 async function loadDashboard(el) {
   try {
-    const [dash, signals] = await Promise.all([
+    const [dash, signals, sourcesData] = await Promise.all([
       api.dashboard(),
       api.getSignals({ limit: 20 }),
+      api.signalSources(),
     ]);
 
     // İstatistik kartları
@@ -127,12 +144,57 @@ async function loadDashboard(el) {
     botVal.style.color   = online ? "var(--success)" : "var(--critical)";
     el.querySelector("#ss-bot").textContent = bs?.last_seen ? `${relTime(bs.last_seen)} görüldü` : "Henüz görülmedi";
 
+    // Kaynak chip'leri oluştur
+    buildSourceChips(el, sourcesData.sources || []);
+
     renderFeed(el, signals.rows || []);
     loadTrendChart(el);
     loadLastReport(el);
   } catch (e) {
     console.error("Dashboard yükleme hatası:", e);
   }
+}
+
+function buildSourceChips(el, sources) {
+  const container = el.querySelector("#source-chips");
+  if (!container) return;
+
+  // Mevcut chip'leri koru, yenilerini ekle
+  const existing = new Set(
+    [...container.querySelectorAll(".source-chip")].map(c => c.dataset.src)
+  );
+
+  sources.forEach(src => {
+    if (existing.has(src)) return;
+    const meta = SOURCE_META[src] || { icon: "◉", color: "var(--text-2)" };
+    const btn  = document.createElement("button");
+    btn.className    = "source-chip";
+    btn.dataset.src  = src;
+    btn.innerHTML    = `${meta.icon} ${escHtml(src)}`;
+    btn.style.setProperty("--chip-color", meta.color);
+    container.appendChild(btn);
+  });
+
+  // Chip tıklama — delegate
+  container.addEventListener("click", async e => {
+    const chip = e.target.closest(".source-chip");
+    if (!chip) return;
+    activeSource = chip.dataset.src;
+    container.querySelectorAll(".source-chip").forEach(c => c.classList.remove("active"));
+    chip.classList.add("active");
+    await reloadFeed(el);
+  });
+}
+
+async function reloadFeed(el) {
+  const feed = el.querySelector("#signal-feed");
+  feed.innerHTML = `<div class="loading"><span class="spinner"></span></div>`;
+  const params = { limit: 20 };
+  if (activeSource) params.source = activeSource;
+  try {
+    const data = await api.getSignals(params);
+    renderFeed(el, data.rows || []);
+  } catch { /* ignore */ }
 }
 
 function renderFeed(el, signals) {
@@ -145,9 +207,10 @@ function renderFeed(el, signals) {
 }
 
 function signalRow(s) {
+  const meta = SOURCE_META[s.source] || { icon: "◉", color: "var(--text-2)" };
   return `<div class="signal-item">
     <span class="sev-dot ${s.severity}"></span>
-    <span class="signal-source">${escHtml(s.source)}</span>
+    <span class="signal-source" style="color:${meta.color}">${meta.icon} ${escHtml(s.source)}</span>
     <span class="signal-title">${escHtml(s.title)}</span>
     <span class="signal-time" data-ts="${s.created_at}">${relTime(s.created_at)}</span>
   </div>`;
@@ -156,8 +219,9 @@ function signalRow(s) {
 function prependSignal(el, s) {
   const feed = el.querySelector("#signal-feed");
   if (!feed) return;
+  // Aktif filtre varsa ve bu sinyalin kaynağı eşleşmiyorsa ekleme
+  if (activeSource && s.source !== activeSource) return;
   feed.querySelector(".empty-state")?.remove();
-
   const row = document.createElement("div");
   row.innerHTML = signalRow(s);
   const item = row.firstElementChild;
@@ -200,10 +264,11 @@ async function loadTrendChart(el) {
     days.push(d.toISOString().split("T")[0]);
   }
 
-  // Son 7 günü tek sorguyla al
   const since7 = days[0] + "T00:00:00";
   try {
-    const data = await api.getSignals({ since: since7, limit: 1000 });
+    const params = { since: since7, limit: 1000 };
+    if (activeSource) params.source = activeSource;
+    const data = await api.getSignals(params);
     const rows = data.rows || [];
 
     const critical = days.map(d => rows.filter(r => r.created_at?.startsWith(d) && r.severity === "critical").length);
