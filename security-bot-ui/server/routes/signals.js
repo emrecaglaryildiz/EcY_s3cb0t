@@ -49,6 +49,12 @@ router.patch("/:id/ack", requireSession, (req, res) => {
   res.json({ ok: true });
 });
 
+// Kaynaklar listesi (oturum gerektirir)
+router.get("/sources", requireSession, (req, res) => {
+  const rows = db.prepare("SELECT DISTINCT source FROM signals ORDER BY source").all();
+  res.json({ sources: rows.map(r => r.source) });
+});
+
 // Özet istatistikler (oturum gerektirir)
 router.get("/stats", requireSession, (req, res) => {
   const sinceRaw   = req.query.since || new Date(Date.now() - 24 * 3600 * 1000).toISOString();

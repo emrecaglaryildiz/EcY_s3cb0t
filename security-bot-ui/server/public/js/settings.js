@@ -348,14 +348,41 @@ export async function initSettings(root) {
       `;
     }
 
+    // LLM için Docker ağ uyarısı
+    const llmNote = cat.id === "llm" ? `
+      <div class="info-banner" style="margin-bottom:14px">
+        <strong>Docker ağ notu:</strong> Ollama host bilgisayarda çalışıyorsa ve
+        <code>host.docker.internal</code> adresi çalışmıyorsa, Base URL'yi
+        <code>http://172.17.0.1:11434</code> olarak deneyin.<br>
+        Docker bridge IP'nizi öğrenmek için: <code>docker network inspect bridge | grep Gateway</code>
+      </div>` : "";
+
+    // Genel için rapor zamanlama bilgisi
+    const genelNote = cat.id === "genel" ? `
+      <div class="info-banner" style="margin-bottom:14px">
+        <strong>Raporlar ne zaman gelir?</strong><br>
+        Bot başladıktan sonra her <em>Otomatik rapor aralığı</em> dakikada bir analiz yapar ve
+        Telegram'a gönderir. Dashboard → "Rapor Tetikle" ile anında da tetikleyebilirsiniz.
+      </div>` : "";
+
+    // Test butonu (guvenlik ve genel kategorisi hariç)
+    const hasTest = !["guvenlik", "genel"].includes(cat.id);
+    const testBtn = hasTest ? `
+      <button type="button" id="test-source" class="btn btn-ghost" style="margin-left:auto">
+        🔌 Bağlantıyı Test Et
+      </button>` : "";
+
     return `
       <div class="page-header">
-        <button class="btn btn-ghost btn-sm" id="back-to-grid">← Geri</button>
-        <h1 class="page-title" style="display:inline-block; margin-left:12px">
-          ${escHtml(cat.icon)} ${escHtml(cat.title)}
-        </h1>
-        <p class="page-subtitle">${escHtml(cat.desc)}</p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%">
+          <button class="btn btn-ghost btn-sm" id="back-to-grid">← Geri</button>
+          <h1 class="page-title" style="display:inline-block">
+            ${escHtml(cat.icon)} ${escHtml(cat.title)}
+          </h1>
+          <p class="page-subtitle" style="width:100%;margin:0">${escHtml(cat.desc)}</p>
+        </div>
       </div>
+      ${llmNote}${genelNote}
       <div class="card">
         <div class="card-body-pad">
           <form id="settings-form" novalidate>
@@ -363,8 +390,10 @@ export async function initSettings(root) {
             <div class="settings-actions">
               <button type="submit" class="btn btn-primary">Kaydet</button>
               <span id="settings-save-status" class="save-status hidden">✓ Kaydedildi</span>
+              ${testBtn}
             </div>
           </form>
+          <div id="test-result" class="test-result hidden"></div>
         </div>
       </div>
     `;
@@ -388,6 +417,28 @@ export async function initSettings(root) {
     root.querySelector("#back-to-grid")?.addEventListener("click", () => {
       currentCategory = null;
       render();
+    });
+
+    // Test Et butonu
+    root.querySelector("#test-source")?.addEventListener("click", async () => {
+      const btn    = root.querySelector("#test-source");
+      const result = root.querySelector("#test-result");
+      if (!btn || !result) return;
+      btn.disabled    = true;
+      btn.textContent = "⏳ Test ediliyor...";
+      result.className = "test-result";
+      result.textContent = "";
+      try {
+        const data = await api.testSource(currentCategory);
+        result.className = `test-result ${data.ok ? "ok" : "fail"}`;
+        result.textContent = data.ok ? `✅ ${data.preview}` : `❌ ${data.error}`;
+      } catch (err) {
+        result.className = "test-result fail";
+        result.textContent = `❌ ${err.message}`;
+      } finally {
+        btn.disabled    = false;
+        btn.textContent = "🔌 Bağlantıyı Test Et";
+      }
     });
 
     // Şifre değiştirme (özel form)
