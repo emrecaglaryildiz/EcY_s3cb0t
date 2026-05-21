@@ -180,10 +180,10 @@ def _send_ui_telegram_message(content: str):
         if _app and _loop:
             for chunk in split_message(f"💬 *UI Sohbet Mesajı:*\n\n{content}"):
                 future = asyncio.run_coroutine_threadsafe(
-                    _app.bot.send_message(chat_id=CHAT_ID, text=chunk, parse_mode="Markdown"),
+                    _send_safe(_app.bot, CHAT_ID, chunk),
                     _loop,
                 )
-                future.result(timeout=10)
+                future.result(timeout=15)
         log_telegram_message(content, message_type="chat", trigger_source="ui")
     except Exception as e:
         log.warning("UI Telegram mesaj gönderilemedi: %s", e)
@@ -306,7 +306,30 @@ def build_report() -> tuple[str, dict]:
 
 
 def split_message(text: str, limit: int = 4000) -> list[str]:
-    return [text[i : i + limit] for i in range(0, len(text), limit)]
+    """Split on newline boundaries; hard-cut only when no newline found."""
+    if len(text) <= limit:
+        return [text]
+    chunks = []
+    while len(text) > limit:
+        split_at = text.rfind("\n", 0, limit)
+        if split_at < 100:          # no useful newline — hard cut
+            split_at = limit
+        chunks.append(text[:split_at])
+        text = text[split_at:].lstrip("\n")
+    if text.strip():
+        chunks.append(text)
+    return chunks
+
+
+async def _send_safe(bot, chat_id: int, text: str):
+    """Send with Markdown; fall back to plain text on parse error."""
+    try:
+        await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+    except Exception:
+        try:
+            await bot.send_message(chat_id=chat_id, text=text)
+        except Exception as e:
+            log.warning("Telegram mesaj gönderilemedi: %s", e)
 
 
 def _is_authorized(update: Update) -> bool:
@@ -317,7 +340,7 @@ def _is_authorized(update: Update) -> bool:
 async def send_chunks(bot, chat_id: int, text: str,
                        message_type: str = "report", trigger_source: str = "auto"):
     for chunk in split_message(text):
-        await bot.send_message(chat_id=chat_id, text=chunk, parse_mode="Markdown")
+        await _send_safe(bot, chat_id, chunk)
         log_telegram_message(chunk, message_type=message_type, trigger_source=trigger_source)
 
 
@@ -847,17 +870,11 @@ def _scheduled_job():
     log.info("Zamanlanmış rapor tetiklendi.")
     try:
         report_text, data = build_report()
-        for chunk in split_message(report_text):
-            asyncio.run_coroutine_threadsafe(
-                _app.bot.send_message(
-                    chat_id=CHAT_ID,
-                    text=chunk,
-                    parse_mode="Markdown",
-                ),
-                _loop,
-            )
+        asyncio.run_coroutine_threadsafe(
+            send_chunks(_app.bot, CHAT_ID, report_text, message_type="report", trigger_source="auto"),
+            _loop,
+        ).result(timeout=120)
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "auto")
-        log_telegram_message(report_text, message_type="report", trigger_source="auto")
         _cfg = fetch_source_config()
         smtp_send_report(report_text, config=_cfg)
         slack_send_report(report_text, config=_cfg)
@@ -893,7 +910,6 @@ def run_once():
     try:
         report_text, data = build_report()
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "manual")
-        log_telegram_message(report_text, message_type="report", trigger_source="manual")
         _cfg = fetch_source_config()
         smtp_send_report(report_text, config=_cfg)
         slack_send_report(report_text, config=_cfg)
@@ -902,12 +918,8 @@ def run_once():
         async def _send():
             bot = Application.builder().token(TOKEN).build()
             async with bot:
-                for chunk in split_message(report_text):
-                    await bot.bot.send_message(
-                        chat_id=CHAT_ID,
-                        text=chunk,
-                        parse_mode="Markdown",
-                    )
+                await send_chunks(bot.bot, CHAT_ID, report_text,
+                                  message_type="report", trigger_source="manual")
 
         asyncio.run(_send())
         log.info("--once modu tamamlandı.")

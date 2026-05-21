@@ -92,7 +92,7 @@ services:
       WEBHOOK_MAX_STORE: "${WEBHOOK_MAX_STORE:-200}"
       # LLM (ollama | claude | openai)
       LLM_PROVIDER:    "${LLM_PROVIDER:-ollama}"
-      OLLAMA_HOST:     "${OLLAMA_HOST:-http://host.docker.internal:11434}"
+      OLLAMA_HOST:     "${OLLAMA_HOST:-http://172.28.0.1:11434}"
       OLLAMA_MODEL:    "${OLLAMA_MODEL:-qwen2.5:3b}"
       CLAUDE_API_KEY:  "${CLAUDE_API_KEY:-}"
       CLAUDE_MODEL:    "${CLAUDE_MODEL:-claude-haiku-4-5-20251001}"
@@ -138,3 +138,8 @@ volumes:
 networks:
   internal:
     driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.28.0.0/16
+          gateway: 172.28.0.1

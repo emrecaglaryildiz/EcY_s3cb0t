@@ -80,6 +80,10 @@ try { db.exec("ALTER TABLE bot_status ADD COLUMN source_status TEXT");          
 try { db.exec("ALTER TABLE bot_status ADD COLUMN pending_alert TEXT");                } catch {}
 try { db.exec("ALTER TABLE bot_status ADD COLUMN pending_telegram TEXT");             } catch {}
 try { db.exec("ALTER TABLE signals ADD COLUMN ack INTEGER DEFAULT 0");                } catch {}
+// Migrate old host.docker.internal default to fixed subnet gateway
+try {
+  db.exec("UPDATE settings SET value='http://172.28.0.1:11434' WHERE key='llm_base_url' AND value='http://host.docker.internal:11434'");
+} catch {}
 
 // ── LLM ayarları tablosu ──────────────────────────────────────────────────────
 db.exec(`
@@ -91,7 +95,7 @@ db.exec(`
 const _ins = db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)");
 for (const [k, v] of [
   ["llm_provider",     "ollama"],
-  ["llm_base_url",     "http://host.docker.internal:11434"],
+  ["llm_base_url",     "http://172.28.0.1:11434"],
   ["llm_api_key",      ""],
   ["llm_model",        "qwen2.5:3b"],
   ["llm_timeout",      "60"],
