@@ -35,8 +35,15 @@ def _has_critical(text: str) -> bool:
     return any(re.search(p, text, re.IGNORECASE) for p in _CRITICAL_PAT)
 
 
-def send_report(report_text: str) -> bool:
+def send_report(report_text: str, config: dict = None) -> bool:
     """Raporu Slack'e gönderir."""
+    global SLACK_WEBHOOK_URL, SLACK_CHANNEL, SLACK_CRITICAL_ONLY, ENABLED
+    if config:
+        if config.get("slack_webhook_url"):        SLACK_WEBHOOK_URL   = config["slack_webhook_url"]
+        if config.get("slack_channel") is not None: SLACK_CHANNEL      = config["slack_channel"]
+        if config.get("slack_on_critical_only") is not None:
+            SLACK_CRITICAL_ONLY = config["slack_on_critical_only"] == "1"
+        ENABLED = bool(SLACK_WEBHOOK_URL)
     if not ENABLED:
         return False
     if SLACK_CRITICAL_ONLY and not _has_critical(report_text):
@@ -71,8 +78,12 @@ def send_report(report_text: str) -> bool:
         return False
 
 
-def send_alert(title: str, body: str, severity: str = "critical") -> bool:
+def send_alert(title: str, body: str, severity: str = "critical", config: dict = None) -> bool:
     """Tek bir alarm için anlık Slack bildirimi gönderir."""
+    global SLACK_WEBHOOK_URL, ENABLED
+    if config and config.get("slack_webhook_url"):
+        SLACK_WEBHOOK_URL = config["slack_webhook_url"]
+        ENABLED = True
     if not ENABLED:
         return False
 

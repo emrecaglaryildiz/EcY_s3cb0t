@@ -6,6 +6,7 @@ import { initReports }     from "./reports.js";
 import { initSources }     from "./sources.js";
 import { initChat }        from "./chat.js";
 import { initSettings }    from "./settings.js";
+import { initTelegram }    from "./telegram.js";
 
 // ── Sayfa haritası ──────────────────────────────────────────────────────────
 const PAGES = {
@@ -14,6 +15,7 @@ const PAGES = {
   reports:   initReports,
   sources:   initSources,
   chat:      initChat,
+  telegram:  initTelegram,
   settings:  initSettings,
 };
 

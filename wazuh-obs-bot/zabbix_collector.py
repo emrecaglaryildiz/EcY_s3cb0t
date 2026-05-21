@@ -165,7 +165,18 @@ def get_active_problems() -> dict:
         return {"error": str(e), "problems": [], "total_problems": 0}
 
 
-def get_summary() -> dict:
+def get_summary(config: dict = None) -> dict:
+    global ZABBIX_HOST, ZABBIX_USER, ZABBIX_PASS, ZABBIX_TOKEN, VERIFY_SSL, TIMEOUT
+    if config:
+        if config.get("zabbix_host"):       ZABBIX_HOST  = config["zabbix_host"].rstrip("/")
+        if config.get("zabbix_user"):       ZABBIX_USER  = config["zabbix_user"]
+        if config.get("zabbix_pass"):       ZABBIX_PASS  = config["zabbix_pass"]
+        if config.get("zabbix_api_token"):  ZABBIX_TOKEN = config["zabbix_api_token"]
+        if config.get("zabbix_verify_ssl") is not None:
+            VERIFY_SSL = config["zabbix_verify_ssl"] == "1"
+        if config.get("zabbix_timeout"):    TIMEOUT      = int(config["zabbix_timeout"])
+    if not ZABBIX_HOST:
+        return {}
     return get_active_problems()
 
 

@@ -21,6 +21,8 @@ services:
       - db_data:/app/data
     networks:
       - internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
       interval: 20s

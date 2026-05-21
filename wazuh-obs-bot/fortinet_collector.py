@@ -239,8 +239,21 @@ def get_routing_table() -> list[dict] | None:
 # Toplu özet
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_summary() -> dict:
+def get_summary(config: dict = None) -> dict:
     """Tüm FortiGate verisini topla ve tek dict olarak döndür."""
+    global HOST, AUTH_METHOD, API_TOKEN, USER, PASS, VDOM, VERIFY_SSL, TIMEOUT
+    if config:
+        if config.get("fortinet_host"):        HOST        = config["fortinet_host"].rstrip("/")
+        if config.get("fortinet_auth"):        AUTH_METHOD = config["fortinet_auth"]
+        if config.get("fortinet_api_token"):   API_TOKEN   = config["fortinet_api_token"]
+        if config.get("fortinet_user"):        USER        = config["fortinet_user"]
+        if config.get("fortinet_pass"):        PASS        = config["fortinet_pass"]
+        if config.get("fortinet_vdom"):        VDOM        = config["fortinet_vdom"]
+        if config.get("fortinet_verify_ssl") is not None:
+            VERIFY_SSL = config["fortinet_verify_ssl"] == "1"
+        if config.get("fortinet_timeout"):     TIMEOUT     = int(config["fortinet_timeout"])
+    if not HOST:
+        return {}
     return {
         "system":     get_system_status(),
         "resources":  get_system_resources(),

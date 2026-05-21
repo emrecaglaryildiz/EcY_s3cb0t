@@ -34,8 +34,14 @@ def _has_critical(text: str) -> bool:
     return any(re.search(p, text, re.IGNORECASE) for p in _CRITICAL_PAT)
 
 
-def send_report(report_text: str) -> bool:
+def send_report(report_text: str, config: dict = None) -> bool:
     """Raporu Teams'e gönderir."""
+    global TEAMS_WEBHOOK_URL, TEAMS_CRITICAL_ONLY, ENABLED
+    if config:
+        if config.get("teams_webhook_url"):            TEAMS_WEBHOOK_URL   = config["teams_webhook_url"]
+        if config.get("teams_on_critical_only") is not None:
+            TEAMS_CRITICAL_ONLY = config["teams_on_critical_only"] == "1"
+        ENABLED = bool(TEAMS_WEBHOOK_URL)
     if not ENABLED:
         return False
     if TEAMS_CRITICAL_ONLY and not _has_critical(report_text):
@@ -66,8 +72,12 @@ def send_report(report_text: str) -> bool:
         return False
 
 
-def send_alert(title: str, body: str, severity: str = "critical") -> bool:
+def send_alert(title: str, body: str, severity: str = "critical", config: dict = None) -> bool:
     """Tek bir alarm için anlık Teams bildirimi gönderir."""
+    global TEAMS_WEBHOOK_URL, ENABLED
+    if config and config.get("teams_webhook_url"):
+        TEAMS_WEBHOOK_URL = config["teams_webhook_url"]
+        ENABLED = True
     if not ENABLED:
         return False
 

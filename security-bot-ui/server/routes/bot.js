@@ -72,8 +72,8 @@ router.post("/telegram/messages", requireBotAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-// Telegram mesaj geçmişi
-router.get("/telegram/messages", (req, res) => {
+// Telegram mesaj geçmişi (oturum gerektirir)
+router.get("/telegram/messages", requireSession, (req, res) => {
   const limit = Math.min(parseInt(req.query.limit || "50"), 200);
   const rows  = db.prepare("SELECT * FROM telegram_messages ORDER BY created_at DESC LIMIT ?").all(limit);
   res.json({ rows });

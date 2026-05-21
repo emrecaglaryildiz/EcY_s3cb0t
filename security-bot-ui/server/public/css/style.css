@@ -356,6 +356,13 @@ select.filter-select:focus { border-color: var(--accent); }
 .save-status { font-size: 12px; color: var(--success); font-family: var(--font-mono); }
 .save-status.error { color: var(--critical); }
 
+/* ─── Settings tabs ──────────────────────────────────────────────────────── */
+.settings-tabs { display:flex; gap:4px; margin-bottom:20px; flex-wrap:wrap; }
+.settings-tab-btn { background:var(--bg-3); border:1px solid var(--border); border-radius:var(--r); padding:6px 14px; color:var(--text-2); cursor:pointer; font-size:13px; }
+.settings-tab-btn.active { background:var(--accent-dim); border-color:var(--accent-muted); color:var(--accent); }
+.settings-tab-content { display:none; }
+.settings-tab-content.active { display:block; }
+
 /* ─── Signal ack ────────────────────────────────────────────────────────── */
 .ack-btn  { background: none; border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text-3); font-size: 12px; cursor: pointer; padding: 2px 7px; line-height: 1.4; transition: all .15s; }
 .ack-btn:hover  { border-color: var(--success); color: var(--success); background: var(--success-bg); }
@@ -420,3 +427,59 @@ tr.acked .sev-dot { filter: grayscale(1); }
 .chat-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
 .chat-input::placeholder { color: var(--text-3); }
 .btn-block { width: 100%; }
+
+/* ─── Settings card grid ────────────────────────────────────────────────── */
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 14px;
+}
+.settings-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  transition: all .15s;
+  position: relative;
+  user-select: none;
+}
+.settings-card:hover {
+  background: var(--bg-3);
+  border-color: var(--accent-muted);
+  transform: translateY(-1px);
+}
+.settings-card:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-card-icon {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  letter-spacing: .5px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-muted);
+  border-radius: var(--r);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.settings-card-body { flex: 1; min-width: 0; }
+.settings-card-title { font-size: 13px; font-weight: 600; color: var(--text-0); margin-bottom: 2px; }
+.settings-card-desc  { font-size: 11.5px; color: var(--text-2); line-height: 1.4; }
+.settings-card-badge {
+  position: absolute; top: 10px; right: 10px;
+  font-size: 10px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 10px;
+}
+.settings-card-badge.configured { background: var(--success-bg); color: var(--success); border: 1px solid var(--success-border); }
+.settings-card-badge.empty       { background: var(--bg-3); color: var(--text-3); border: 1px solid var(--border); }
+.form-group-row { display: flex; align-items: center; }
+.checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }
+.checkbox-label input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+select.form-input { cursor: pointer; }

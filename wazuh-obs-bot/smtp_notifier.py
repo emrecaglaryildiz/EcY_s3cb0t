@@ -65,12 +65,25 @@ def _markdown_to_html(text: str) -> str:
     return f"<html><body style='font-family:monospace;'>{text}</body></html>"
 
 
-def send_report(report_text: str, subject: str = "") -> bool:
+def send_report(report_text: str, subject: str = "", config: dict = None) -> bool:
     """
     Raporu e-posta olarak gönderir.
     SMTP devre dışıysa veya CRITICAL_ONLY=1 ve kritik yoksa sessizce atlar.
     Başarı durumunda True, hata/atlanma durumunda False döner.
     """
+    global SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, SMTP_TO_RAW, SMTP_TLS, CRITICAL_ONLY, ENABLED
+    if config:
+        if config.get("smtp_host"):    SMTP_HOST    = config["smtp_host"]
+        if config.get("smtp_port"):    SMTP_PORT    = int(config["smtp_port"])
+        if config.get("smtp_user"):    SMTP_USER    = config["smtp_user"]
+        if config.get("smtp_pass"):    SMTP_PASS    = config["smtp_pass"]
+        if config.get("smtp_from"):    SMTP_FROM    = config["smtp_from"]
+        if config.get("smtp_to"):      SMTP_TO_RAW  = config["smtp_to"]
+        if config.get("smtp_tls")  is not None: SMTP_TLS      = config["smtp_tls"]      == "1"
+        if config.get("smtp_on_critical_only") is not None:
+            CRITICAL_ONLY = config["smtp_on_critical_only"] == "1"
+        if not SMTP_FROM: SMTP_FROM = SMTP_USER
+        ENABLED = bool(SMTP_HOST and SMTP_USER and SMTP_TO_RAW)
     if not ENABLED:
         return False
 
@@ -118,19 +131,16 @@ def send_report(report_text: str, subject: str = "") -> bool:
     return False
 
 
-def send_alert(title: str, body: str, severity: str = "critical") -> bool:
+def send_alert(title: str, body: str, severity: str = "critical", config: dict = None) -> bool:
     """
     Tek bir alarm/sinyal için acil e-posta gönderir.
     Zamanlanmış rapordan bağımsız, anlık uyarı için kullanılır.
     """
-    if not ENABLED:
-        return False
-
     icon  = {"critical": "🔴", "warning": "🟡", "info": "🔵"}.get(severity, "❓")
     ts    = datetime.now().strftime("%d.%m.%Y %H:%M")
     text  = f"{icon} [{severity.upper()}] {title}\n\n{body}\n\n⏱ {ts} TSİ"
     subject = f"[EcY_S3CB0T] {icon} {title[:80]}"
-    return send_report(text, subject=subject)
+    return send_report(text, subject=subject, config=config)
 
 
 def test_connection() -> dict:

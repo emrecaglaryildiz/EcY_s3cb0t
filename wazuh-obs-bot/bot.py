@@ -138,16 +138,17 @@ def _send_critical_alert(alert: dict):
 def send_heartbeat():
     """Web UI'ye kaynak durumu ile birlikte heartbeat gönder; tetik/kritik alert varsa işle."""
     try:
+        src_cfg = fetch_source_config()
         source_status = {
-            "wazuh":        bool(os.getenv("WAZUH_HOST")),
-            "observium":    bool(os.getenv("OBSERVIUM_HOST")),
+            "wazuh":        bool(src_cfg.get("wazuh_host") or os.getenv("WAZUH_HOST")),
+            "observium":    bool(src_cfg.get("obs_host") or os.getenv("OBSERVIUM_HOST")),
             "graylog":      bool(os.getenv("GRAYLOG_HOST")),
             "fortinet":     bool(os.getenv("FORTINET_HOST")),
             "prometheus":   bool(os.getenv("PROMETHEUS_HOST") or os.getenv("ALERTMANAGER_HOST")),
             "zabbix":       bool(os.getenv("ZABBIX_HOST")),
             "elastic":      bool(os.getenv("ELASTIC_HOST")),
             "webhook":      True,
-            "telegram":     bool(os.getenv("TELEGRAM_TOKEN")),
+            "telegram":     bool(src_cfg.get("telegram_token") or os.getenv("TELEGRAM_TOKEN")),
             "smtp":         bool(os.getenv("SMTP_HOST")),
             "slack":        bool(os.getenv("SLACK_WEBHOOK_URL")),
             "teams":        bool(os.getenv("TEAMS_WEBHOOK_URL")),
@@ -203,25 +204,63 @@ def fetch_llm_config() -> dict | None:
     return None
 
 
+def fetch_source_config() -> dict:
+    """UI API'sinden kaynak yapılandırmalarını çeker; hata durumunda boş dict döner."""
+    try:
+        resp = http_requests.get(f"{WEB_UI_API}/api/settings/sources", headers=_bot_headers(), timeout=3)
+        if resp.ok:
+            return resp.json()
+    except Exception:
+        pass
+    return {}
+
+
+def _merge_config(cfg: dict, prefix: str, env_map: dict) -> dict:
+    """UI settings (prefix_key) ile env var fallback birleştirir."""
+    result = {}
+    for key, env_var in env_map.items():
+        ui_val = cfg.get(f"{prefix}_{key}", "")
+        result[key] = ui_val if ui_val else os.getenv(env_var, "")
+    return result
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Veri toplama & analiz
 # ─────────────────────────────────────────────────────────────────────────────
 
-def collect_all() -> dict:
+def collect_all(src_cfg: dict = None) -> dict:
+    cfg = src_cfg or {}
+
+    # Backend seçimi
+    wazuh_backend = cfg.get("wazuh_backend") or os.getenv("WAZUH_BACKEND", "api")
+    obs_backend   = cfg.get("obs_backend")   or os.getenv("OBS_BACKEND", "requests")
+
+    if wazuh_backend == "elasticsearch":
+        from wazuh_es_collector import get_recent_alerts as wazuh_fn
+    else:
+        from wazuh_collector import get_recent_alerts as wazuh_fn
+
+    if obs_backend == "selenium":
+        from observium_selenium import get_summary as obs_fn
+    else:
+        obs_fn = obs_get_summary
+
     tasks: dict[str, callable] = {
-        "wazuh":     get_recent_alerts,
-        "observium": obs_get_summary,
+        "wazuh":     lambda: wazuh_fn(config=cfg),
+        "observium": lambda: obs_fn(config=cfg) if obs_backend == "selenium" else obs_fn(),
     }
-    if os.getenv("GRAYLOG_HOST", ""):
-        tasks["graylog"] = gl_get_summary
-    if os.getenv("FORTINET_HOST", ""):
-        tasks["fortinet"] = ft_get_summary
-    if os.getenv("PROMETHEUS_HOST", "") or os.getenv("ALERTMANAGER_HOST", ""):
-        tasks["prometheus"] = prom_get_summary
-    if os.getenv("ZABBIX_HOST", ""):
-        tasks["zabbix"] = zbx_get_summary
-    if os.getenv("ELASTIC_HOST", ""):
-        tasks["elastic"] = el_get_summary
+    if cfg.get("wazuh_host") or os.getenv("GRAYLOG_HOST", ""):
+        pass  # graylog uses own env
+    if cfg.get("graylog_host") or os.getenv("GRAYLOG_HOST", ""):
+        tasks["graylog"] = lambda: gl_get_summary(config=cfg)
+    if cfg.get("fortinet_host") or os.getenv("FORTINET_HOST", ""):
+        tasks["fortinet"] = lambda: ft_get_summary(config=cfg)
+    if cfg.get("prometheus_host") or cfg.get("alertmanager_host") or os.getenv("PROMETHEUS_HOST", "") or os.getenv("ALERTMANAGER_HOST", ""):
+        tasks["prometheus"] = lambda: prom_get_summary(config=cfg)
+    if cfg.get("zabbix_host") or os.getenv("ZABBIX_HOST", ""):
+        tasks["zabbix"] = lambda: zbx_get_summary(config=cfg)
+    if cfg.get("elastic_host") or os.getenv("ELASTIC_HOST", ""):
+        tasks["elastic"] = lambda: el_get_summary(config=cfg)
     tasks["webhooks"] = wh_get_summary  # her zaman çalışır (yerel deque)
 
     results: dict = {}
@@ -246,7 +285,8 @@ def collect_all() -> dict:
 def build_report() -> tuple[str, dict]:
     """Rapor metni + ham veri döner."""
     log.info("Veri toplanıyor...")
-    data       = collect_all()
+    src_cfg    = fetch_source_config()
+    data       = collect_all(src_cfg)
     llm_config = fetch_llm_config()
     provider   = (llm_config or {}).get("llm_provider", os.getenv("LLM_PROVIDER", "ollama"))
     log.info("LLM analizi başlatılıyor (provider: %s)...", provider)
@@ -322,7 +362,10 @@ async def cmd_durum(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await send_chunks(ctx.bot, update.message.chat_id, report_text,
                           message_type="report", trigger_source="manual")
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "manual")
-        smtp_send_report(report_text)
+        _cfg = fetch_source_config()
+        smtp_send_report(report_text, config=_cfg)
+        slack_send_report(report_text, config=_cfg)
+        teams_send_report(report_text, config=_cfg)
     except Exception as e:
         log.error("cmd_durum hatası: %s", e)
         await update.message.reply_text(f"❌ Hata oluştu: `{e}`", parse_mode="Markdown")
@@ -791,9 +834,10 @@ def _scheduled_job():
             )
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "auto")
         log_telegram_message(report_text, message_type="report", trigger_source="auto")
-        smtp_send_report(report_text)
-        slack_send_report(report_text)
-        teams_send_report(report_text)
+        _cfg = fetch_source_config()
+        smtp_send_report(report_text, config=_cfg)
+        slack_send_report(report_text, config=_cfg)
+        teams_send_report(report_text, config=_cfg)
         log.info("Zamanlanmış rapor gönderildi.")
     except Exception as e:
         log.error("Zamanlanmış rapor gönderilemedi: %s", e)
@@ -826,7 +870,10 @@ def run_once():
         report_text, data = build_report()
         push_report_to_ui(report_text, data["wazuh"], data["observium"], "manual")
         log_telegram_message(report_text, message_type="report", trigger_source="manual")
-        smtp_send_report(report_text)
+        _cfg = fetch_source_config()
+        smtp_send_report(report_text, config=_cfg)
+        slack_send_report(report_text, config=_cfg)
+        teams_send_report(report_text, config=_cfg)
 
         async def _send():
             bot = Application.builder().token(TOKEN).build()
