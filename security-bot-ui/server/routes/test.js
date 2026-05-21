@@ -80,12 +80,48 @@ async function testWazuh() {
 async function testObservium() {
   const s    = cfg("obs");
   const host = (s.obs_host || "").replace(/\/$/, "");
+  const user = s.obs_user || "admin";
+  const pass = s.obs_pass || "";
   if (!host) throw new Error("Observium host tanımlı değil");
-  const r = await ft(`${host}/`);
-  return {
-    ok: true,
-    preview: `Observium'a ulaşıldı\nHost: ${host}\nHTTP ${r.status} — giriş sayfası erişilebilir`,
-  };
+
+  // 1) Erişilebilirlik + CSRF token
+  const homeRes  = await ft(`${host}/`, {}, 10000);
+  if (!homeRes.ok && homeRes.status !== 302)
+    throw new Error(`Sunucuya ulaşılamıyor: HTTP ${homeRes.status}`);
+  const homeHtml = await homeRes.text().catch(() => "");
+
+  // Hidden input'ları topla (CSRF vb.)
+  const hidden = {};
+  for (const m of homeHtml.matchAll(/<input[^>]+type=["']hidden["'][^>]*>/gi)) {
+    const nm = m[0].match(/name=["']([^"']+)["']/);
+    const vm = m[0].match(/value=["']([^"']*)["']/);
+    if (nm) hidden[nm[1]] = vm ? vm[1] : "";
+  }
+
+  // 2) Login POST
+  const body = new URLSearchParams({ username: user, password: pass, ...hidden });
+  const loginRes  = await ft(`${host}/login/`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body:    body.toString(),
+  }, 12000);
+  const loginText = await loginRes.text().catch(() => "");
+
+  if (/incorrect|wrong.*password|invalid.*credential/i.test(loginText))
+    throw new Error("Kullanıcı adı veya şifre hatalı");
+  if (/\/login\//i.test(loginRes.url || "") && !/dashboard/i.test(loginText))
+    throw new Error("Giriş başarısız — kimlik bilgilerini kontrol edin");
+
+  // 3) Cihaz/port sayısını çek (özet)
+  const devMatch = loginText.match(/(\d+)\s*(?:devices?|cihaz)/i);
+  const preview  = [
+    `Observium giriş başarılı ✓`,
+    `Host: ${host}`,
+    `Kullanıcı: ${user}`,
+    devMatch ? `Cihaz: ${devMatch[1]}` : "",
+  ].filter(Boolean).join("\n");
+
+  return { ok: true, preview };
 }
 
 async function testTelegram() {
