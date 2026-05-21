@@ -247,7 +247,7 @@ def collect_all(src_cfg: dict = None) -> dict:
 
     tasks: dict[str, callable] = {
         "wazuh":     lambda: wazuh_fn(config=cfg),
-        "observium": lambda: obs_fn(config=cfg) if obs_backend == "selenium" else obs_fn(),
+        "observium": lambda: obs_fn(config=cfg),
     }
     if cfg.get("wazuh_host") or os.getenv("GRAYLOG_HOST", ""):
         pass  # graylog uses own env

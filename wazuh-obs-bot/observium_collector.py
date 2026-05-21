@@ -701,11 +701,26 @@ def get_recent_events(limit: int = 20) -> dict:
 
 # ── Hızlı özet (bot.py tarafından çağrılır) ──────────────────────────────────
 
-def get_summary() -> dict:
+def get_summary(config: dict = None) -> dict:
     """
     Tek seferde giriş yaparak tüm verileri toplar.
     bot.py ve web UI routes bunu kullanır.
     """
+    global OBS_HOST, OBS_USER, OBS_PASS
+    if config:
+        new_host = (config.get("obs_host") or "").rstrip("/")
+        new_user = config.get("obs_user") or ""
+        new_pass = config.get("obs_pass") or ""
+        if new_host and new_host != OBS_HOST:
+            OBS_HOST = new_host
+            _reset_session()
+        if new_user and new_user != OBS_USER:
+            OBS_USER = new_user
+            _reset_session()
+        if new_pass and new_pass != OBS_PASS:
+            OBS_PASS = new_pass
+            _reset_session()
+
     dashboard = get_dashboard_summary()
 
     # Eski uyumluluk katmanı — devices / alerts / ports anahtarları
