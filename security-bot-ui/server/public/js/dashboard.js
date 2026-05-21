@@ -159,13 +159,13 @@ function buildSourceChips(el, sources) {
   const container = el.querySelector("#source-chips");
   if (!container) return;
 
-  // Mevcut chip'leri koru, yenilerini ekle
-  const existing = new Set(
-    [...container.querySelectorAll(".source-chip")].map(c => c.dataset.src)
-  );
+  // Always show all known integrations + any extra sources from DB
+  const allSources = [...new Set([...Object.keys(SOURCE_META), ...(sources || [])])];
 
-  sources.forEach(src => {
-    if (existing.has(src)) return;
+  // Rebuild chips (keep "Tümü" chip)
+  [...container.querySelectorAll(".source-chip")].filter(c => c.dataset.src !== "").forEach(c => c.remove());
+
+  allSources.forEach(src => {
     const meta = SOURCE_META[src] || { icon: "◉", color: "var(--text-2)" };
     const btn  = document.createElement("button");
     btn.className    = "source-chip";
@@ -175,15 +175,15 @@ function buildSourceChips(el, sources) {
     container.appendChild(btn);
   });
 
-  // Chip tıklama — delegate
-  container.addEventListener("click", async e => {
+  // Use onclick to avoid duplicate listeners on re-render
+  container.onclick = async e => {
     const chip = e.target.closest(".source-chip");
     if (!chip) return;
     activeSource = chip.dataset.src;
     container.querySelectorAll(".source-chip").forEach(c => c.classList.remove("active"));
     chip.classList.add("active");
     await reloadFeed(el);
-  });
+  };
 }
 
 async function reloadFeed(el) {
