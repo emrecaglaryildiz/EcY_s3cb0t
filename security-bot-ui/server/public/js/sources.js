@@ -1,5 +1,6 @@
 // sources.js — Bağlı veri kaynakları ve bildirim kanalları
 import { api } from "./api.js";
+import { showModal, escHtml, relTime, fmtTime, sevIcon } from "./app.js";
 
 const SOURCE_META = {
   // Veri kaynakları
@@ -17,6 +18,12 @@ const SOURCE_META = {
   smtp:         { icon: "📧",  name: "SMTP E-posta",           desc: "Kritik alarm e-postaları (STARTTLS/SSL)",    group: "notif" },
   slack:        { icon: "💬",  name: "Slack",                  desc: "Incoming Webhook bildirimleri",              group: "notif" },
   teams:        { icon: "🟦",  name: "Microsoft Teams",        desc: "Incoming Webhook / MessageCard bildirimleri",group: "notif" },
+};
+
+const SEV_COLOR = {
+  critical: "var(--critical)",
+  warning:  "var(--warning)",
+  info:     "var(--info)",
 };
 
 export async function initSources(el) {
@@ -84,7 +91,7 @@ function renderCards(grid, keys, status, sigBySource, botOnline) {
   grid.innerHTML = keys.map(key => {
     const meta    = SOURCE_META[key];
     const active  = status[key] === true;
-    const configured = status[key] === false;  // bot bildirdi ama devre dışı
+    const configured = status[key] === false;
     const unknown = status[key] === undefined;
 
     let cls, badge, label;
@@ -97,9 +104,9 @@ function renderCards(grid, keys, status, sigBySource, botOnline) {
     } else {
       cls = "inactive"; badge = "disabled"; label = "Bilinmiyor";
     }
-    const sigs    = sigBySource[key] || 0;
+    const sigs = sigBySource[key] || 0;
 
-    return `<div class="source-card ${cls}">
+    return `<div class="source-card ${cls}" data-key="${key}" style="cursor:pointer">
       <div class="source-card-header">
         <div class="source-name">
           <span class="source-icon">${meta.icon}</span>
@@ -115,6 +122,78 @@ function renderCards(grid, keys, status, sigBySource, botOnline) {
             <div class="source-stat-label">Sinyal (24s)</div>
           </div>
         </div>` : ""}
+      <div class="source-card-footer">Son 50 sinyali gör →</div>
     </div>`;
   }).join("");
+
+  grid.addEventListener("click", e => {
+    const card = e.target.closest(".source-card[data-key]");
+    if (!card) return;
+    openSignalPanel(card.dataset.key);
+  });
+}
+
+async function openSignalPanel(key) {
+  const meta = SOURCE_META[key];
+  const title = `${meta.icon} ${meta.name} — Son Sinyaller`;
+
+  // Yükleniyor durumu
+  showModal(title, `<div class="loading" style="padding:40px 0"><span class="spinner"></span> Yükleniyor…</div>`);
+
+  try {
+    const data = await api.getSignals({ source: key, limit: 50 });
+    const rows = data.rows || [];
+
+    if (!rows.length) {
+      document.getElementById("modal-body").innerHTML = `
+        <div class="empty-state" style="padding:60px 0">
+          <div class="empty-icon">📭</div>
+          <div class="empty-text">Bu kaynak için henüz sinyal kaydı yok</div>
+        </div>`;
+      return;
+    }
+
+    document.getElementById("modal-body").innerHTML = `
+      <div style="margin-bottom:12px;font-size:12px;color:var(--text-2)">
+        ${rows.length} sinyal — en yeni üstte
+      </div>
+      <table class="data-table signal-modal-table">
+        <thead>
+          <tr>
+            <th style="width:36px"></th>
+            <th>Başlık</th>
+            <th style="width:130px">Zaman</th>
+            <th style="width:70px">Durum</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(s => signalRow(s)).join("")}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    document.getElementById("modal-body").innerHTML =
+      `<div style="color:var(--critical);padding:20px">Yüklenemedi: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function signalRow(s) {
+  const color = SEV_COLOR[s.severity] || "var(--text-2)";
+  const bodyPreview = s.body && s.body !== s.title
+    ? `<div style="font-size:11px;color:var(--text-3);margin-top:3px;white-space:pre-wrap;max-height:48px;overflow:hidden">${escHtml(s.body.slice(0, 200))}</div>`
+    : "";
+  const ackBadge = s.ack
+    ? `<span style="font-size:10px;color:var(--success);font-weight:600">ACK</span>`
+    : "";
+  return `<tr>
+    <td><span class="sev-dot ${s.severity}" title="${escHtml(s.severity)}"></span></td>
+    <td>
+      <div style="font-weight:500;color:var(--text-0)">${escHtml(s.title)}</div>
+      ${bodyPreview}
+    </td>
+    <td style="font-size:11px;color:var(--text-2);white-space:nowrap">
+      <div title="${escHtml(s.created_at)}">${relTime(s.created_at)}</div>
+      <div style="color:var(--text-3)">${fmtTime(s.created_at)}</div>
+    </td>
+    <td>${ackBadge}</td>
+  </tr>`;
 }
