@@ -228,9 +228,16 @@ a:hover { text-decoration: underline; }
 
 /* ─── Sources grid ──────────────────────────────────────────────────────── */
 .sources-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }
-.source-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+.source-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 18px; display: flex; flex-direction: column; gap: 10px; transition: border-color .15s, box-shadow .15s; }
+.source-card:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim); }
 .source-card.active   { border-color: var(--success-border); }
-.source-card.inactive { opacity: .55; }
+.source-card.active:hover { border-color: var(--accent); }
+.source-card.inactive { opacity: .65; }
+.source-card-footer { margin-top: auto; font-size: 11px; color: var(--text-3); text-align: right; transition: color .15s; }
+.source-card:hover .source-card-footer { color: var(--accent); }
+.signal-modal-table { table-layout: fixed; }
+.signal-modal-table td:first-child { text-align: center; }
+.signal-modal-table tbody tr:hover td { background: var(--bg-3); }
 .source-card-header { display: flex; align-items: center; justify-content: space-between; }
 .source-name { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
 .source-icon { font-size: 18px; }
