@@ -6,19 +6,28 @@ let _history = [];   // {role, content} — LLM context için
 
 // ── Markdown renderer ─────────────────────────────────────────────
 if (typeof marked !== "undefined") {
-  // Custom renderer: code blocks → hljs highlighted
   const renderer = new marked.Renderer();
   renderer.code = function({ text, lang }) {
     const language = lang && typeof hljs !== "undefined" && hljs.getLanguage(lang) ? lang : null;
+    let highlighted;
     try {
-      const highlighted = language
+      highlighted = language
         ? hljs.highlight(text, { language }).value
         : (typeof hljs !== "undefined" ? hljs.highlightAuto(text).value : escHtml(text));
-      const cls = language ? ` class="language-${language}"` : "";
-      return `<pre><code class="hljs${cls}">${highlighted}</code></pre>`;
-    } catch {
-      return `<pre><code class="hljs">${escHtml(text)}</code></pre>`;
-    }
+    } catch { highlighted = escHtml(text); }
+    const cls   = language ? ` language-${language}` : "";
+    const label = language || "kod";
+    // data-code taşır ham kaynağı → copy butonu bundan okur
+    const rawB64 = btoa(unescape(encodeURIComponent(text)));
+    return `<div class="code-block">
+      <div class="code-block-header">
+        <span class="code-block-lang">${escHtml(label)}</span>
+        <button class="code-copy-btn" data-code="${rawB64}" title="Kopyala">
+          <span class="copy-icon">⧉</span><span class="copy-text">Kopyala</span>
+        </button>
+      </div>
+      <pre><code class="hljs${cls}">${highlighted}</code></pre>
+    </div>`;
   };
   marked.use({ renderer, gfm: true, breaks: true, pedantic: false });
 }
@@ -33,10 +42,43 @@ function renderMarkdown(content) {
       "h1","h2","h3","h4","h5","h6",
       "ul","ol","li","blockquote","hr",
       "pre","code","table","thead","tbody","tr","th","td",
-      "a","span","div",
+      "a","span","div","button",
     ],
-    ALLOWED_ATTR: ["href","class","target","rel"],
+    ALLOWED_ATTR: ["href","class","target","rel","title","data-code"],
     FORCE_BODY: false,
+  });
+}
+
+function bindCodeCopyButtons(scope) {
+  scope.querySelectorAll(".code-copy-btn").forEach(btn => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", async () => {
+      let text;
+      try { text = decodeURIComponent(escape(atob(btn.dataset.code || ""))); }
+      catch { text = btn.dataset.code || ""; }
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        // Fallback: textarea + execCommand
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); } catch {}
+        ta.remove();
+      }
+      const label = btn.querySelector(".copy-text");
+      const icon  = btn.querySelector(".copy-icon");
+      const prev  = label?.textContent;
+      if (label) label.textContent = "Kopyalandı";
+      if (icon)  icon.textContent  = "✓";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        if (label) label.textContent = prev || "Kopyala";
+        if (icon)  icon.textContent  = "⧉";
+        btn.classList.remove("copied");
+      }, 1500);
+    });
   });
 }
 
@@ -147,11 +189,14 @@ function appendBubble(el, role, content, ts, scroll = true) {
 
   wrap.appendChild(div);
 
-  // Highlight any code blocks not already processed by the renderer
-  if (role === "assistant" && typeof hljs !== "undefined") {
-    div.querySelectorAll("pre code:not(.hljs)").forEach(block => {
-      hljs.highlightElement(block);
-    });
+  if (role === "assistant") {
+    // Highlight any code blocks not already processed by the renderer
+    if (typeof hljs !== "undefined") {
+      div.querySelectorAll("pre code:not(.hljs)").forEach(block => {
+        hljs.highlightElement(block);
+      });
+    }
+    bindCodeCopyButtons(div);
   }
 
   if (scroll) scrollToBottom(el);

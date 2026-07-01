@@ -42,10 +42,26 @@ function extractTitle(payload, source) {
   return `${source} webhook`;
 }
 
+// Dashboard chip / SOURCE_META anahtarlarıyla eşleşmesi için normalize et
+function normalizeSource(raw) {
+  const s = (raw || "").toString().trim().toLowerCase();
+  if (!s || s === "generic" || s === "webhook") return "webhook";
+  // Sık kullanılan takma adları eşle
+  const aliases = {
+    grafana: "prometheus", alertmanager: "prometheus", promalert: "prometheus",
+    forti: "fortinet", fortigate: "fortinet",
+    obs: "observium",
+    zbx: "zabbix", zabbixsrv: "zabbix",
+    gl: "graylog",
+    es: "elastic", opensearch: "elastic", elasticsearch: "elastic",
+  };
+  return aliases[s] || s;
+}
+
 // POST /api/webhook veya /api/webhook/:source
 router.post(["/:source", "/"], (req, res) => {
   if (!authOk(req)) return res.status(401).json({ error: "Unauthorized" });
-  const source   = req.params.source || "generic";
+  const source   = normalizeSource(req.params.source);
   const payload  = req.body || {};
   const severity = parseSeverity(payload);
   const title    = extractTitle(payload, source);

@@ -26,7 +26,14 @@ router.post("/heartbeat", requireBotAuth, (req, res) => {
     db.prepare("UPDATE bot_status SET pending_alert = NULL WHERE id = 1").run();
   }
   if (row?.pending_telegram) {
-    telegramMsg = row.pending_telegram;
+    // Yeni format: {"id":123,"content":"..."} — eski format: düz string
+    let pending = null;
+    try {
+      const parsed = JSON.parse(row.pending_telegram);
+      if (parsed && typeof parsed === "object" && "content" in parsed) pending = parsed;
+    } catch {}
+    if (!pending) pending = { id: null, content: row.pending_telegram };
+    telegramMsg = pending;
     db.prepare("UPDATE bot_status SET pending_telegram = NULL WHERE id = 1").run();
   }
 
@@ -58,9 +65,21 @@ router.get("/sources", requireSession, (req, res) => {
 });
 
 // Telegram mesaj kaydet (bot auth)
+// updateId verilmişse mevcut 'queued' satırı UPDATE eder (UI→bot senkronu), yoksa yeni INSERT
 router.post("/telegram/messages", requireBotAuth, (req, res) => {
-  const { direction, chatId, messageType, content, status, triggerSource } = req.body || {};
+  const { direction, chatId, messageType, content, status, triggerSource, updateId } = req.body || {};
   if (!content) return res.status(400).json({ error: "content gerekli" });
+
+  if (updateId) {
+    const info = db.prepare(`
+      UPDATE telegram_messages
+         SET status = ?, chat_id = COALESCE(?, chat_id)
+       WHERE id = ?
+    `).run(status || "sent", chatId || null, parseInt(updateId));
+    if (info.changes > 0) return res.json({ ok: true, updated: updateId });
+    // Fallback: id bulunamadıysa INSERT olarak devam et
+  }
+
   db.prepare(`
     INSERT INTO telegram_messages (direction, chat_id, message_type, content, status, trigger_source)
     VALUES (?, ?, ?, ?, ?, ?)

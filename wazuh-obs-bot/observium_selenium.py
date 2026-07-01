@@ -11,23 +11,26 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-import time
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 log = logging.getLogger("ecy-s3cb0t.obs-selenium")
 
 def _get_driver():
     options = Options()
     options.binary_location = os.getenv("CHROME_BIN", "/usr/bin/chromium")
-    options.add_argument("--headless")
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    return webdriver.Chrome(options=options)
+    options.add_argument("--ignore-certificate-errors")
+    driver = webdriver.Chrome(options=options)
+    driver.set_page_load_timeout(30)
+    return driver
 
 def get_summary(config: dict = None) -> dict:
     cfg = config or {}
-    url  = cfg.get("obs_host") or os.getenv("OBSERVIUM_HOST", "http://localhost")
+    url  = (cfg.get("obs_host") or os.getenv("OBSERVIUM_HOST", "http://localhost")).rstrip("/")
     user = cfg.get("obs_user") or os.getenv("OBSERVIUM_USER", "admin")
     pwd  = cfg.get("obs_pass") or os.getenv("OBSERVIUM_PASS", "admin")
 
@@ -35,11 +38,33 @@ def get_summary(config: dict = None) -> dict:
     try:
         driver = _get_driver()
         driver.get(url)
-        time.sleep(2)
+
+        # Login formu belirene kadar bekle (kaynak scriptteki time.sleep(2) yerine)
+        wait = WebDriverWait(driver, 15)
+        try:
+            wait.until(EC.presence_of_element_located((By.NAME, "username")))
+        except TimeoutException:
+            raise RuntimeError(f"Login sayfası yüklenemedi: {url}")
 
         driver.find_element(By.NAME, "username").send_keys(user)
         driver.find_element(By.NAME, "password").send_keys(pwd + Keys.RETURN)
-        time.sleep(3)
+
+        # Login sonucu bekle: dashboard yüklendi mi, yoksa halen login formunda mıyız?
+        try:
+            wait.until(lambda d: (
+                d.find_elements(By.XPATH, "//h3[contains(text(),'Alert Status')]")
+                or d.find_elements(By.XPATH, "//*[contains(text(),'Devices')]")
+                or "login" in (d.current_url or "").lower()
+            ))
+        except TimeoutException:
+            raise RuntimeError("Dashboard yüklenemedi (login yanıtı gecikti)")
+
+        # Halen login sayfasındaysak — kimlik doğrulama başarısız
+        if "login" in (driver.current_url or "").lower():
+            body_txt = driver.find_element(By.TAG_NAME, "body").text.lower()
+            if "incorrect" in body_txt or "invalid" in body_txt or "wrong" in body_txt:
+                raise RuntimeError("Observium kullanıcı adı veya şifre yanlış")
+            raise RuntimeError("Observium girişi başarısız (login sayfasında kaldı)")
 
         alerts = []
         total_alerts = 0
@@ -63,8 +88,10 @@ def get_summary(config: dict = None) -> dict:
                 else: warning_count += 1
                 alerts.append({"device": device, "entity": alert, "message": status, "severity": sev, "status": status, "change": ""})
             total_alerts = len(alerts)
+        except NoSuchElementException:
+            log.info("Alert Status tablosu bulunamadı — muhtemelen aktif alarm yok")
         except Exception as e:
-            log.warning("Alert Status tablosu bulunamadı: %s", e)
+            log.warning("Alert Status parse hatası: %s", e)
 
         # Device summary — look for the Devices row in the overview table
         devices_up = 0

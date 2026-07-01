@@ -90,8 +90,12 @@ def push_report_to_ui(content: str, wazuh_data: dict, obs_data: dict, report_typ
 
 
 def log_telegram_message(content: str, message_type: str = "report",
-                          trigger_source: str = "auto", status: str = "sent"):
-    """Telegram'a gönderilen mesajı Web UI'ye kaydet."""
+                          trigger_source: str = "auto", status: str = "sent",
+                          update_id: int | None = None):
+    """Telegram'a gönderilen mesajı Web UI'ye kaydet.
+
+    update_id verilirse mevcut queued kaydı UPDATE eder (UI→bot senkronu için).
+    """
     try:
         payload = {
             "direction":     "out",
@@ -101,6 +105,8 @@ def log_telegram_message(content: str, message_type: str = "report",
             "status":        status,
             "triggerSource": trigger_source,
         }
+        if update_id is not None:
+            payload["updateId"] = update_id
         http_requests.post(f"{WEB_UI_API}/api/bot/telegram/messages", json=payload, headers=_bot_headers(), timeout=5)
     except Exception as e:
         log.warning("Telegram mesaj log hatası: %s", e)
@@ -174,8 +180,21 @@ def send_heartbeat():
         pass
 
 
-def _send_ui_telegram_message(content: str):
-    """UI sohbet penceresinden gelen mesajı Telegram'a iletir."""
+def _send_ui_telegram_message(msg):
+    """UI sohbet penceresinden gelen mesajı Telegram'a iletir.
+
+    msg iki formatta gelebilir:
+      - dict: {"id": <rowid>, "content": "..."} (yeni format — queued satır UPDATE edilir)
+      - str : düz metin (geriye uyumluluk için)
+    """
+    if isinstance(msg, dict):
+        content   = msg.get("content", "")
+        update_id = msg.get("id")
+    else:
+        content   = str(msg)
+        update_id = None
+    if not content.strip():
+        return
     try:
         if _app and _loop:
             for chunk in split_message(f"💬 *UI Sohbet Mesajı:*\n\n{content}"):
@@ -184,9 +203,14 @@ def _send_ui_telegram_message(content: str):
                     _loop,
                 )
                 future.result(timeout=15)
-        log_telegram_message(content, message_type="chat", trigger_source="ui")
+        # Queued kaydı 'sent' olarak UPDATE et — yeni satır oluşturma
+        log_telegram_message(content, message_type="chat", trigger_source="ui",
+                             status="sent", update_id=update_id)
     except Exception as e:
         log.warning("UI Telegram mesaj gönderilemedi: %s", e)
+        # Hata durumunda queued satırı 'failed' işaretle
+        log_telegram_message(content, message_type="chat", trigger_source="ui",
+                             status="failed", update_id=update_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

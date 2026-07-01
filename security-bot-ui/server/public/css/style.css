@@ -426,9 +426,19 @@ tr.acked .sev-dot { filter: grayscale(1); }
 .md blockquote { border-left: 3px solid var(--accent); background: var(--bg-1); margin: 0 0 10px; padding: 7px 12px; border-radius: 0 var(--r) var(--r) 0; color: var(--text-2); }
 .md blockquote p { margin: 0; }
 .md code { background: var(--bg-1); border: 1px solid var(--border-muted); padding: 1px 5px; border-radius: 3px; font-family: var(--font-mono); font-size: 12px; color: var(--text-0); }
-.md pre { background: #0d1117; border: 1px solid var(--border); border-radius: var(--r); padding: 0; overflow: hidden; margin: 0 0 10px; }
+.md pre { background: #0d1117; border: 1px solid var(--border); border-radius: var(--r); padding: 0; overflow: hidden; margin: 0; }
 .md pre code { background: none; border: none; padding: 12px 14px; display: block; overflow-x: auto; font-size: 12px; line-height: 1.6; color: inherit; }
 .md .hljs { background: transparent; padding: 12px 14px; font-size: 12px; line-height: 1.6; }
+
+/* Code block wrapper with header + copy button */
+.md .code-block { margin: 0 0 12px; border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; background: #0d1117; }
+.md .code-block pre { border: none; border-radius: 0; margin: 0; }
+.md .code-block-header { display: flex; align-items: center; justify-content: space-between; padding: 5px 10px 5px 12px; background: #161b22; border-bottom: 1px solid var(--border); }
+.md .code-block-lang { font-family: var(--font-mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-3); font-weight: 600; }
+.md .code-copy-btn { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; font-size: 11px; font-family: var(--font-ui); background: transparent; border: 1px solid transparent; border-radius: var(--r-sm); color: var(--text-3); cursor: pointer; transition: color .15s, border-color .15s, background .15s; }
+.md .code-copy-btn:hover { color: var(--text-0); border-color: var(--border); background: var(--bg-3); }
+.md .code-copy-btn.copied { color: var(--success); border-color: var(--success-border); }
+.md .code-copy-btn .copy-icon { font-size: 12px; line-height: 1; }
 .md table { border-collapse: collapse; margin: 0 0 12px; font-size: 13px; display: block; overflow-x: auto; white-space: nowrap; }
 .md thead th { background: var(--bg-1); color: var(--text-0); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; padding: 7px 12px; border: 1px solid var(--border); }
 .md tbody tr:nth-child(even) { background: var(--bg-1); }

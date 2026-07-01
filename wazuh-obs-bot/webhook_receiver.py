@@ -109,6 +109,23 @@ def _push_to_ui(entry: dict):
 
 # ── Flask rotaları ─────────────────────────────────────────────────────────────
 
+_SOURCE_ALIASES = {
+    "generic": "webhook",
+    "grafana": "prometheus", "alertmanager": "prometheus", "promalert": "prometheus",
+    "forti": "fortinet", "fortigate": "fortinet",
+    "obs": "observium",
+    "zbx": "zabbix", "zabbixsrv": "zabbix",
+    "gl": "graylog",
+    "es": "elastic", "opensearch": "elastic", "elasticsearch": "elastic",
+}
+
+def _normalize_source(raw: str) -> str:
+    s = (raw or "").strip().lower()
+    if not s:
+        return "webhook"
+    return _SOURCE_ALIASES.get(s, s)
+
+
 @app.route("/webhook", methods=["POST"])
 @app.route("/webhook/<source>", methods=["POST"])
 def receive_webhook(source: str = "generic"):
@@ -120,6 +137,7 @@ def receive_webhook(source: str = "generic"):
     except Exception:
         payload = {}
 
+    source = _normalize_source(source)
     entry = {
         "id":        f"{source}-{datetime.now(timezone.utc).timestamp():.0f}",
         "source":    source,

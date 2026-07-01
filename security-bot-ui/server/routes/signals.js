@@ -10,14 +10,16 @@ router.post("/", requireBotAuth, (req, res) => {
   const { source, severity, title, body, raw } = req.body || {};
   if (!source || !title) return res.status(400).json({ error: "source ve title gerekli" });
 
+  // Dashboard chip filtresi ile eşleşmesi için lowercase normalize et
+  const srcNorm = String(source).trim().toLowerCase() || "webhook";
   const sev    = ["critical", "warning", "info"].includes(severity) ? severity : "info";
   const now    = new Date().toISOString();
   const result = db.prepare(
     "INSERT INTO signals (source, severity, title, body, raw) VALUES (?, ?, ?, ?, ?)"
-  ).run(source, sev, title, body || null, raw ? JSON.stringify(raw) : null);
+  ).run(srcNorm, sev, title, body || null, raw ? JSON.stringify(raw) : null);
 
   // SSE ile bağlı istemcilere canlı bildir
-  bus.emit("signal", { id: result.lastInsertRowid, source, severity: sev, title, body: body || null, created_at: now });
+  bus.emit("signal", { id: result.lastInsertRowid, source: srcNorm, severity: sev, title, body: body || null, created_at: now });
 
   res.json({ ok: true, id: result.lastInsertRowid });
 });

@@ -10,20 +10,25 @@ import urllib3
 from datetime import datetime, timedelta, timezone
 urllib3.disable_warnings()
 
+def _flag(v) -> bool:
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 def get_recent_alerts(config: dict = None) -> dict:
     cfg = config or {}
-    es_host = cfg.get("wazuh_es_host") or os.getenv("WAZUH_ES_HOST", "https://localhost:9200")
-    es_user = cfg.get("wazuh_es_user") or os.getenv("WAZUH_ES_USER", "elastic")
-    es_pass = cfg.get("wazuh_es_pass") or os.getenv("WAZUH_ES_PASS", "")
-    interval = int(os.getenv("CHECK_INTERVAL_MINUTES", "30"))
-    verify_ssl = os.getenv("WAZUH_VERIFY_SSL", "0") == "1"
-
-    # Date range
-    since_date = (datetime.now(timezone.utc) - timedelta(minutes=interval)).strftime("%Y-%m-%dT%H:%M:%S")
+    es_host    = (cfg.get("wazuh_es_host") or os.getenv("WAZUH_ES_HOST", "https://localhost:9200")).rstrip("/")
+    es_user    = cfg.get("wazuh_es_user")  or os.getenv("WAZUH_ES_USER", "elastic")
+    es_pass    = cfg.get("wazuh_es_pass")  or os.getenv("WAZUH_ES_PASS", "")
+    interval   = int(cfg.get("check_interval_minutes") or os.getenv("CHECK_INTERVAL_MINUTES", "30"))
+    verify_ssl = _flag(cfg.get("wazuh_verify_ssl") or os.getenv("WAZUH_VERIFY_SSL", "0"))
+    min_level  = int(cfg.get("wazuh_alert_level")   or os.getenv("WAZUH_ALERT_LEVEL", "7"))
 
     query = {
         "size": 0,
-        "query": {"range": {"@timestamp": {"gte": f"now-{interval}m", "lte": "now"}}},
+        "query": {"bool": {"filter": [
+            {"range": {"@timestamp": {"gte": f"now-{interval}m", "lte": "now"}}},
+            {"range": {"rule.level":  {"gte": min_level}}},
+        ]}},
         "aggs": {
             "by_rule": {
                 "terms": {"field": "rule.description", "size": 50},

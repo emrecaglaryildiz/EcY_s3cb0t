@@ -219,19 +219,22 @@ async function testTelegram() {
   };
 }
 
+function flag(v) { return String(v).trim().toLowerCase() === "1" || v === true; }
+
 async function testGraylog() {
   const s    = cfg("graylog");
   const host = (s.graylog_host || "").replace(/\/$/, "");
   if (!host) throw new Error("Graylog host tanımlı değil");
   const creds = Buffer.from(`${s.graylog_user || "admin"}:${s.graylog_pass || ""}`).toString("base64");
-  const r     = await ft(`${host}/api/system`, {
-    headers: { Authorization: `Basic ${creds}`, Accept: "application/json" },
+  const r = await rawReq(`${host}/api/system`, {
+    headers:   { Authorization: `Basic ${creds}`, Accept: "application/json" },
+    verifySSL: flag(s.graylog_verify_ssl),
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const data = await r.json();
+  const data = r.json();
   return {
     ok: true,
-    preview: `Graylog bağlandı\nHost: ${host}\nSürüm: ${data.version || "?"}\nDurum: ${data.lb_status || "?"}`,
+    preview: `Graylog bağlandı ✓\nHost: ${host}\nSürüm: ${data.version || "?"}\nDurum: ${data.lb_status || "?"}`,
   };
 }
 
@@ -239,77 +242,88 @@ async function testFortinet() {
   const s    = cfg("fortinet");
   const host = (s.fortinet_host || "").replace(/\/$/, "");
   if (!host) throw new Error("Fortinet host tanımlı değil");
-  const headers = {};
+  const headers = { Accept: "application/json" };
   if (s.fortinet_auth === "token" && s.fortinet_api_token) {
     headers.Authorization = `Bearer ${s.fortinet_api_token}`;
   }
-  const r = await ft(`${host}/api/v2/monitor/system/status`, { headers });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const data    = await r.json();
+  const r = await rawReq(`${host}/api/v2/monitor/system/status`, {
+    headers,
+    verifySSL: flag(s.fortinet_verify_ssl),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}${r.status === 401 ? " — API token geçersiz olabilir" : ""}`);
+  const data    = r.json();
   const results = data.results || data;
   return {
     ok: true,
-    preview: `FortiGate bağlandı\nHost: ${host}\nHostname: ${results?.hostname || "?"}\nSürüm: ${results?.version || "?"}`,
+    preview: `FortiGate bağlandı ✓\nHost: ${host}\nHostname: ${results?.hostname || "?"}\nSürüm: ${results?.version || "?"}`,
   };
 }
 
 async function testPrometheus() {
   const rows = db.prepare(
-    "SELECT key, value FROM settings WHERE key IN ('prometheus_host','alertmanager_host')"
+    "SELECT key, value FROM settings WHERE key IN ('prometheus_host','alertmanager_host','prometheus_verify_ssl')"
   ).all();
   const s    = Object.fromEntries(rows.map(r => [r.key, r.value]));
   const host = (s.prometheus_host || s.alertmanager_host || "").replace(/\/$/, "");
   if (!host) throw new Error("Prometheus veya Alertmanager host tanımlı değil");
-  const r    = await ft(`${host}/api/v1/query?query=up`);
+  const isProm = !!s.prometheus_host;
+  const path   = isProm ? "/api/v1/query?query=up" : "/api/v2/alerts";
+  const r = await rawReq(`${host}${path}`, { verifySSL: flag(s.prometheus_verify_ssl) });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const data  = await r.json();
-  const count = data?.data?.result?.length || 0;
-  return { ok: true, preview: `Prometheus bağlandı\nHost: ${host}\nAktif hedef sayısı: ${count}` };
+  const data = r.json();
+  const info = isProm
+    ? `Aktif hedef sayısı: ${data?.data?.result?.length || 0}`
+    : `Aktif alarm sayısı: ${Array.isArray(data) ? data.length : 0}`;
+  return { ok: true, preview: `${isProm ? "Prometheus" : "Alertmanager"} bağlandı ✓\nHost: ${host}\n${info}` };
 }
 
 async function testZabbix() {
   const s    = cfg("zabbix");
   const host = (s.zabbix_host || "").replace(/\/$/, "");
   if (!host) throw new Error("Zabbix host tanımlı değil");
-  // API version sorgusu (her zaman çalışır)
-  const r    = await ft(`${host}/api_jsonrpc.php`, {
-    method:  "POST",
+  const verifySSL = flag(s.zabbix_verify_ssl);
+  const r = await rawReq(`${host}/api_jsonrpc.php`, {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ jsonrpc: "2.0", method: "apiinfo.version", params: [], id: 1 }),
+    body: JSON.stringify({ jsonrpc: "2.0", method: "apiinfo.version", params: [], id: 1 }),
+    verifySSL,
   });
-  const data = await r.json();
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const data = r.json();
   const ver  = data.result || "?";
-  // Token varsa kimlik doğrulama dene
+
   let authNote = "";
   if (s.zabbix_api_token || (s.zabbix_user && s.zabbix_pass)) {
-    const params = s.zabbix_api_token
-      ? { token: s.zabbix_api_token }
-      : { user: s.zabbix_user, password: s.zabbix_pass };
-    const r2   = await ft(`${host}/api_jsonrpc.php`, {
-      method:  "POST",
+    const params = s.zabbix_api_token ? { token: s.zabbix_api_token }
+                                       : { user: s.zabbix_user, password: s.zabbix_pass };
+    const r2 = await rawReq(`${host}/api_jsonrpc.php`, {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ jsonrpc: "2.0", method: "user.login", params, id: 2 }),
+      body: JSON.stringify({ jsonrpc: "2.0", method: "user.login", params, id: 2 }),
+      verifySSL,
     });
-    const d2 = await r2.json();
-    authNote = d2.error ? `\nAuth hatası: ${d2.error.data}` : "\nKimlik doğrulama başarılı";
+    const d2 = r2.json();
+    authNote = d2.error ? `\nAuth hatası: ${d2.error.data}` : "\nKimlik doğrulama başarılı ✓";
   }
-  return { ok: true, preview: `Zabbix bağlandı\nHost: ${host}\nAPI sürüm: ${ver}${authNote}` };
+  return { ok: true, preview: `Zabbix bağlandı ✓\nHost: ${host}\nAPI sürüm: ${ver}${authNote}` };
 }
 
 async function testElastic() {
   const s    = cfg("elastic");
   const host = (s.elastic_host || "").replace(/\/$/, "");
   if (!host) throw new Error("Elasticsearch host tanımlı değil");
-  const headers = {};
+  const headers = { Accept: "application/json" };
   if (s.elastic_user) {
     headers.Authorization = `Basic ${Buffer.from(`${s.elastic_user}:${s.elastic_pass || ""}`).toString("base64")}`;
   }
-  const r    = await ft(`${host}/_cluster/health`, { headers });
+  const r = await rawReq(`${host}/_cluster/health`, {
+    headers, verifySSL: flag(s.elastic_verify_ssl),
+  });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const data = await r.json();
+  const data = r.json();
   return {
     ok: true,
-    preview: `Elasticsearch bağlandı\nHost: ${host}\nKlüster: ${data.cluster_name || "?"}\nDurum: ${data.status || "?"}`,
+    preview: `Elasticsearch bağlandı ✓\nHost: ${host}\nKlüster: ${data.cluster_name || "?"}\nDurum: ${data.status || "?"}`,
   };
 }
 

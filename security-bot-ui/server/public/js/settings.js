@@ -26,36 +26,24 @@ const CATEGORIES = [
   },
   {
     id: "wazuh", icon: "WZ", title: "Wazuh",
-    desc: "SIEM uyarıları (API veya Elasticsearch)",
+    desc: "SIEM uyarıları (Elasticsearch / OpenSearch)",
     keys: [
-      { key: "wazuh_host", label: "Host", type: "url",
-        placeholder: "https://wazuh-server:55000" },
-      { key: "wazuh_user", label: "Kullanıcı", type: "text" },
-      { key: "wazuh_pass", label: "Şifre", type: "password", masked: true },
-      { key: "wazuh_alert_level", label: "Alert seviyesi (1-15)", type: "number" },
-      { key: "wazuh_verify_ssl", label: "SSL doğrula", type: "checkbox" },
-      { key: "wazuh_backend", label: "Backend", type: "select", options: [
-        ["api",           "REST API"],
-        ["elasticsearch", "Elasticsearch / OpenSearch"],
-      ]},
-      { key: "wazuh_es_host", label: "ES Host", type: "url",
+      { key: "wazuh_es_host", label: "Elasticsearch Host", type: "url",
         placeholder: "https://172.31.0.6:9200" },
       { key: "wazuh_es_user", label: "ES Kullanıcı", type: "text" },
       { key: "wazuh_es_pass", label: "ES Şifre", type: "password", masked: true },
+      { key: "wazuh_alert_level", label: "Alert seviyesi (1-15)", type: "number" },
+      { key: "wazuh_verify_ssl", label: "SSL doğrula", type: "checkbox" },
     ],
   },
   {
     id: "observium", icon: "OB", title: "Observium",
-    desc: "Ağ cihazları ve port izleme",
+    desc: "Ağ cihazları ve port izleme (Selenium ile)",
     keys: [
       { key: "obs_host", label: "Host", type: "url",
-        placeholder: "http://observium" },
+        placeholder: "http://172.31.0.201" },
       { key: "obs_user", label: "Kullanıcı", type: "text" },
       { key: "obs_pass", label: "Şifre", type: "password", masked: true },
-      { key: "obs_backend", label: "Backend", type: "select", options: [
-        ["requests", "Requests (HTTP API)"],
-        ["selenium", "Selenium (Tarayıcı)"],
-      ]},
     ],
   },
   {

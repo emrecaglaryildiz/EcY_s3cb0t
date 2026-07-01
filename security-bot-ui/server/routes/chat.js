@@ -99,12 +99,14 @@ router.post("/message", requireSession, async (req, res) => {
 router.post("/send-telegram", requireSession, (req, res) => {
   const { content } = req.body || {};
   if (!content) return res.status(400).json({ error: "content gerekli" });
-  db.prepare("UPDATE bot_status SET pending_telegram = ? WHERE id = 1").run(content);
-  // Hemen telegram_messages'a kaydet (bot offline olsa bile görünsün)
-  db.prepare(
+  // 1) Önce mesajı 'queued' olarak logla (bot offline olsa bile UI'da görünsün)
+  const result = db.prepare(
     "INSERT INTO telegram_messages (direction, message_type, content, status, trigger_source) VALUES (?, ?, ?, ?, ?)"
   ).run("out", "chat", content, "queued", "ui");
-  res.json({ ok: true, message: "Mesaj kuyruğa alındı — bot sonraki heartbeat'te gönderecek" });
+  // 2) Bota id + content ile pending payload gönder (bot geri gönderirken UPDATE etsin)
+  const payload = JSON.stringify({ id: result.lastInsertRowid, content });
+  db.prepare("UPDATE bot_status SET pending_telegram = ? WHERE id = 1").run(payload);
+  res.json({ ok: true, id: result.lastInsertRowid, message: "Mesaj kuyruğa alındı — bot sonraki heartbeat'te gönderecek" });
 });
 
 // DELETE /api/chat/history
